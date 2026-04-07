@@ -1,0 +1,80 @@
+import { existsSync, readFileSync } from 'fs';
+import { resolve, dirname } from 'path';
+import { fileURLToPath } from 'url';
+import * as core from '@actions/core';
+import { setFailed } from '@actions/core';
+import { Context } from '@actions/github/lib/context';
+import { isTargetEvent } from '@technote-space/filter-github-action';
+import { ContextHelper, Utils } from '@technote-space/github-action-helper';
+import { Logger } from '@technote-space/github-action-log-helper';
+import axios, { isAxiosError } from 'axios';
+import { TARGET_EVENTS } from './constant';
+import { deploy } from './utils/command';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+async function validateSubscription(): Promise<void> {
+  const eventPath = process.env.GITHUB_EVENT_PATH;
+  let repoPrivate: boolean | undefined;
+
+  if (eventPath && existsSync(eventPath)) {
+    const eventData = JSON.parse(readFileSync(eventPath, 'utf8'));
+    repoPrivate = eventData?.repository?.private;
+  }
+
+  const upstream = 'technote-space/release-github-actions';
+  const action = process.env.GITHUB_ACTION_REPOSITORY;
+  const docsUrl = 'https://docs.stepsecurity.io/actions/stepsecurity-maintained-actions';
+
+  core.info('');
+  core.info('\u001b[1;36mStepSecurity Maintained Action\u001b[0m');
+  core.info(`Secure drop-in replacement for ${upstream}`);
+  if (repoPrivate === false)
+    core.info('\u001b[32m\u2713 Free for public repositories\u001b[0m');
+  core.info(`\u001b[36mLearn more:\u001b[0m ${docsUrl}`);
+  core.info('');
+
+  if (repoPrivate === false) return;
+
+  const serverUrl = process.env.GITHUB_SERVER_URL || 'https://github.com';
+  const body: Record<string, string> = { action: action || '' };
+  if (serverUrl !== 'https://github.com') body.ghes_server = serverUrl; // eslint-disable-line camelcase
+  try {
+    await axios.post(
+      `https://agent.api.stepsecurity.io/v1/github/${process.env.GITHUB_REPOSITORY}/actions/maintained-actions-subscription`,
+      body,
+      { timeout: 3000 },
+    );
+  } catch (error) {
+    if (isAxiosError(error) && error.response?.status === 403) {
+      core.error(
+        '\u001b[1;31mThis action requires a StepSecurity subscription for private repositories.\u001b[0m',
+      );
+      core.error(
+        `\u001b[31mLearn how to enable a subscription: ${docsUrl}\u001b[0m`,
+      );
+      process.exit(1);
+    }
+    core.info('Timeout or API not reachable. Continuing to next step.');
+  }
+}
+
+const run = async(): Promise<void> => {
+  await validateSubscription();
+  const logger  = new Logger();
+  const context = new Context();
+  ContextHelper.showActionInfo(resolve(__dirname, '..'), logger, context);
+
+  if (!isTargetEvent(TARGET_EVENTS, context)) {
+    logger.info('This is not target event.');
+    return;
+  }
+
+  await deploy(Utils.getOctokit(), context);
+};
+
+run().catch(error => {
+  console.log(error);
+  setFailed(error.message);
+});

@@ -1,0 +1,41 @@
+on: push
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+
+name: CI
+
+jobs:
+  eslint:
+    name: ESLint
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: yarn
+      - name: Install dependencies
+        run: yarn install
+      - name: Lint
+        run: yarn lint
+
+  test:
+    name: Test
+    needs: eslint
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      matrix:
+        os: ${{ github.actor == 'dependabot[bot]' && fromJson('["ubuntu-latest"]') || fromJson('["ubuntu-latest", "macos-latest"]') }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: yarn
+      - name: Install dependencies
+        run: yarn install
+      - name: Run tests
+        run: yarn cover
