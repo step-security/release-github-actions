@@ -296,15 +296,15 @@ describe('getClearFilesCommands', () => {
       'rm -rdf *.yaml',
       { command: 'rm', args: ['-rdf', '__tests__', 'src'] },
     ]);
-    expect(getClearFilesCommands(['?<>:|"\'@#$%^& ;/?<>:|"\'@#$%^& ;.*', '-?<>:|"\'@#$%^& ;', '*.?<>:|"\'@#$%^& ;'])).toEqual([
-      'rm -rdf -- -\\?\\<\\>\\:\\|\\"\\\'\\@\\#\\$\\%\\^\\&\\ \\;',
-      'rm -rdf ?\\<\\>\\:\\|\\"\\\'\\@\\#\\$\\%\\^\\&\\ \\;/\\?<>:|"\'@#$%^& ;.*',
-      'rm -rdf *.\\?\\<\\>\\:\\|\\"\\\'\\@\\#\\$\\%\\^\\&\\ \\;',
-    ]);
-    expect(getClearFilesCommands(['test/?>; abc.txt', '-test1 test2.txt', ';rm -rf /', '-test1 test2/*.txt'])).toEqual([
-      'rm -rdf -- -test1\\ test2.txt',
-      'rm -rdf -- -test1\\ test2/*.txt',
-      { command: 'rm', args: ['-rdf', 'test/?>; abc.txt', ';rm -rf /'] },
+    // Targets with shell metacharacters are rejected by the allowlist
+    expect(getClearFilesCommands(['?<>:|"\'@#$%^& ;/?<>:|"\'@#$%^& ;.*', '-?<>:|"\'@#$%^& ;', '*.?<>:|"\'@#$%^& ;'])).toEqual([]);
+    // Injection attempts and targets with spaces are rejected; valid targets are kept
+    expect(getClearFilesCommands(['test/?>; abc.txt', '-test1 test2.txt', ';rm -rf /', '-test1 test2/*.txt'])).toEqual([]);
+    // Dash-prefixed targets use -- to prevent flag interpretation
+    expect(getClearFilesCommands(['-foo', '-bar.js', 'src'])).toEqual([
+      'rm -rdf -- -foo',
+      'rm -rdf -- -bar.js',
+      { command: 'rm', args: ['-rdf', 'src'] },
     ]);
   });
 });
@@ -425,7 +425,7 @@ describe('getBuildCommands', () => {
       ...mv1(buildDir1),
       'rm -rdf -- -test2',
       'rm -rdf -- -test5',
-      { command: 'rm', args: ['-rdf', 'test1', 'test3 test4', 'test6;test7'] },
+      { command: 'rm', args: ['-rdf', 'test1'] },
       ...mv2(buildDir1),
     ]);
   });

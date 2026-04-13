@@ -1,20 +1,18 @@
-'use strict';
-
-var fs$1 = require('fs');
-var path = require('path');
-var require$$0 = require('os');
-var http$1 = require('http');
-var require$$3$1 = require('https');
-require('net');
-var require$$1$1 = require('tls');
-var require$$4$1 = require('events');
-require('assert');
-var require$$6 = require('util');
-var Stream = require('stream');
-var Url = require('url');
-var require$$0$1 = require('punycode');
-var zlib = require('zlib');
-var child_process = require('child_process');
+import fs$1 from 'fs';
+import path, { resolve, dirname } from 'path';
+import require$$0 from 'os';
+import http$1 from 'http';
+import require$$3$1 from 'https';
+import 'net';
+import require$$1$1 from 'tls';
+import require$$4$1 from 'events';
+import 'assert';
+import require$$6 from 'util';
+import Stream from 'stream';
+import Url from 'url';
+import require$$0$1 from 'punycode';
+import zlib from 'zlib';
+import { spawn, exec } from 'child_process';
 
 var commonjsGlobal = typeof globalThis !== 'undefined' ? globalThis : typeof window !== 'undefined' ? window : typeof global !== 'undefined' ? global : typeof self !== 'undefined' ? self : {};
 
@@ -88125,7 +88123,7 @@ class Command {
             writable: true,
             value: (command, quiet, suppressOutput, stderrToStdout, cwd) => {
                 return new Promise((resolve, reject) => {
-                    const subProcess = child_process.spawn(command, [], { shell: true, cwd, stdio: [process.stdin, 'pipe', 'pipe'] });
+                    const subProcess = spawn(command, [], { shell: true, cwd, stdio: [process.stdin, 'pipe', 'pipe'] });
                     let stdout = '';
                     let stderr = '';
                     subProcess.stdout.on('data', (data) => {
@@ -88201,10 +88199,10 @@ class Command {
                 if (this.useExec) {
                     return new Promise((resolve, reject) => {
                         if (typeof cwd === 'undefined') {
-                            child_process.exec(this.getCommand(commandWithArgs, quiet, suppressError), this.execCallback(commandWithArgs, altCommand, quiet, suppressOutput, stderrToStdout, resolve, reject));
+                            exec(this.getCommand(commandWithArgs, quiet, suppressError), this.execCallback(commandWithArgs, altCommand, quiet, suppressOutput, stderrToStdout, resolve, reject));
                         }
                         else {
-                            child_process.exec(this.getCommand(commandWithArgs, quiet, suppressError), { cwd }, this.execCallback(commandWithArgs, altCommand, quiet, suppressOutput, stderrToStdout, resolve, reject));
+                            exec(this.getCommand(commandWithArgs, quiet, suppressError), { cwd }, this.execCallback(commandWithArgs, altCommand, quiet, suppressOutput, stderrToStdout, resolve, reject));
                         }
                     });
                 }
@@ -89447,7 +89445,7 @@ const getCleanTargets = () => utils.getArrayInput('CLEAN_TARGETS')
     .filter(target => target && !target.startsWith('/') && !target.includes('..'));
 const getSearchBuildCommandTargets = () => utils.getArrayInput('BUILD_COMMAND_TARGET', true);
 const detectBuildCommands = (dir, runCommand, commands) => {
-    const packageFile = path.resolve(dir, 'package.json');
+    const packageFile = resolve(dir, 'package.json');
     if (!fs$1.existsSync(packageFile)) {
         return [];
     }
@@ -89468,13 +89466,13 @@ const detectBuildCommands = (dir, runCommand, commands) => {
 const getBackupCommands = (buildDir, pushDir) => [
     {
         command: 'mv',
-        args: ['-f', path.resolve(buildDir, 'action.yaml'), path.resolve(pushDir, 'action.yml')],
+        args: ['-f', resolve(buildDir, 'action.yaml'), resolve(pushDir, 'action.yml')],
         suppressError: true,
         quiet: true,
     },
     {
         command: 'mv',
-        args: ['-f', path.resolve(buildDir, 'action.yml'), path.resolve(pushDir, 'action.yml')],
+        args: ['-f', resolve(buildDir, 'action.yml'), resolve(pushDir, 'action.yml')],
         suppressError: true,
         quiet: true,
     },
@@ -89482,21 +89480,22 @@ const getBackupCommands = (buildDir, pushDir) => [
 const getRestoreBackupCommands = (buildDir, pushDir) => [
     {
         command: 'mv',
-        args: ['-f', path.resolve(pushDir, 'action.yml'), path.resolve(buildDir, 'action.yml')],
+        args: ['-f', resolve(pushDir, 'action.yml'), resolve(buildDir, 'action.yml')],
         suppressError: true,
         quiet: true,
     },
 ];
 const getClearFilesCommands = (targets) => {
     const commands = [];
-    const searchValues = '?<>:|"\'@#$%^& ;';
-    const replaceValue = '$1\\$2';
-    const escapeFunc = (item) => searchValues.split('').reduce((acc, val) => acc.replace(new RegExp('([^\\\\])(' + utils.escapeRegExp(val) + ')'), replaceValue), item);
-    const beginWithDash = targets.filter(item => item.startsWith('-')).map(escapeFunc);
-    const withWildcard = targets.filter(item => !item.startsWith('-') && item.includes('*')).map(escapeFunc);
-    const withoutWildcard = targets.filter(item => !item.startsWith('-') && !item.includes('*'));
+    // Strict allowlist: only permit characters valid in file/glob patterns.
+    // This prevents command injection via shell metacharacters (;|$`()&\n etc.)
+    const validTargetPattern = /^[a-zA-Z0-9._\-/*?\[\]!]+$/;
+    const validTargets = targets.filter(target => validTargetPattern.test(target));
+    const beginWithDash = validTargets.filter(item => item.startsWith('-'));
+    const withWildcard = validTargets.filter(item => !item.startsWith('-') && item.includes('*'));
+    const withoutWildcard = validTargets.filter(item => !item.startsWith('-') && !item.includes('*'));
     if (beginWithDash.length) {
-        commands.push(...beginWithDash.map(target => `rm -rdf -- ${target}`));
+        commands.push(...beginWithDash.map(target => ({ command: 'rm', args: ['-rdf', '--', target] })));
     }
     if (withWildcard.length) {
         commands.push(...withWildcard.map(target => `rm -rdf ${target}`));
@@ -89580,9 +89579,9 @@ const getCreateTags = (tagName) => {
     return utils.uniqueArray(settings.filter(setting => setting.condition()).map(setting => createTag(setting.createTag)).concat(tagName)).sort().reverse();
 };
 const params = (context) => {
-    const workDir = path.resolve(utils.getWorkspace(), '.work');
-    const buildDir = path.resolve(workDir, 'build');
-    const pushDir = path.resolve(workDir, 'push');
+    const workDir = resolve(utils.getWorkspace(), '.work');
+    const buildDir = resolve(workDir, 'build');
+    const pushDir = resolve(workDir, 'push');
     const tagName = contextHelper.getTagName(context);
     const normalized = isTestTag(tagName) ? getTestTag(tagName) : tagName;
     const rawBranchNames = getBranchNames();
@@ -89658,8 +89657,8 @@ const createBuildInfoFile = async (logger, context) => {
     }
     const { buildDir, branchName, tagName } = getParams(context);
     logger.startProcess('Creating build info file...');
-    const filepath = path.resolve(buildDir, filename);
-    const dir = path.dirname(filepath);
+    const filepath = resolve(buildDir, filename);
+    const dir = dirname(filepath);
     if (!fs$1.existsSync(dir)) {
         fs$1.mkdirSync(dir, { recursive: true });
     }
@@ -89812,6 +89811,4 @@ var types = /*#__PURE__*/Object.freeze({
 	__proto__: null
 });
 
-exports.Command = command;
-exports.Misc = misc;
-exports.Types = types;
+export { command as Command, misc as Misc, types as Types };

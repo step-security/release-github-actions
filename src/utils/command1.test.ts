@@ -220,7 +220,7 @@ describe('prepareFiles', () => {
       'rm -rdf -- -test5',
       'rm -rdf test8/*.txt',
       'rm -rdf *.test9',
-      'rm -rdf test1 \'test3 test4\' \'test6;test7\'',
+      'rm -rdf test1',
       `mv -f '${resolve(pushDir, 'action.yml')}' '${resolve(buildDir, 'action.yml')}' > /dev/null 2>&1 || :`,
     ]));
   });
@@ -229,6 +229,7 @@ describe('prepareFiles', () => {
     process.env.INPUT_PACKAGE_MANAGER = 'yarn';
     process.env.INPUT_GITHUB_TOKEN    = 'test-token';
     process.env.GITHUB_WORKSPACE      = 'test-dir';
+    // All targets except -test1 contain shell metacharacters and are rejected by the allowlist
     process.env.INPUT_CLEAN_TARGETS   = '-test1, -test2/?<>:|"\'@#$%^& ;.*.test3 , ?<>:|"\'@#$%^& ;/test4 test5/*.txt,;?<>:|"\'@#$%^& ;.txt,rm -rf /';
     const mockExec                    = spyOnSpawn();
 
@@ -250,9 +251,6 @@ describe('prepareFiles', () => {
       `mv -f '${resolve(buildDir, 'action.yaml')}' '${resolve(pushDir, 'action.yml')}' > /dev/null 2>&1 || :`,
       `mv -f '${resolve(buildDir, 'action.yml')}' '${resolve(pushDir, 'action.yml')}' > /dev/null 2>&1 || :`,
       'rm -rdf -- -test1',
-      'rm -rdf -- -test2/\\?\\<\\>\\:\\|\\"\\\'\\@\\#\\$\\%\\^\\&\\ \\;.*.test3',
-      'rm -rdf ?\\<\\>\\:\\|\\"\\\'\\@\\#\\$\\%\\^\\&\\ \\;/test4 test5/*.txt',
-      'rm -rdf \';?<>:|"\'\\\'\'@#$%^& ;.txt\' \'rm -rf /\'',
       `mv -f '${resolve(pushDir, 'action.yml')}' '${resolve(buildDir, 'action.yml')}' > /dev/null 2>&1 || :`,
     ]));
   });

@@ -71,12 +71,14 @@ export const getRestoreBackupCommands = (buildDir: string, pushDir: string): Arr
 
 export const getClearFilesCommands = (targets: Array<string>): Array<CommandType> => {
   const commands: Array<CommandType> = [];
-  const searchValues                 = '?<>:|"\'@#$%^& ;';
-  const replaceValue                 = '$1\\$2';
-  const escapeFunc                   = (item: string): string => searchValues.split('').reduce((acc, val) => acc.replace(new RegExp('([^\\\\])(' + Utils.escapeRegExp(val) + ')'), replaceValue), item);
-  const beginWithDash                = targets.filter(item => item.startsWith('-')).map(escapeFunc);
-  const withWildcard                 = targets.filter(item => !item.startsWith('-') && item.includes('*')).map(escapeFunc);
-  const withoutWildcard              = targets.filter(item => !item.startsWith('-') && !item.includes('*'));
+
+  // Strict allowlist: only permit characters valid in file/glob patterns.
+  // This prevents command injection via shell metacharacters (;|$`()&\n etc.)
+  const validTargetPattern = /^[a-zA-Z0-9._\-/*?[\]!]+$/;
+  const validTargets       = targets.filter(target => validTargetPattern.test(target));
+  const beginWithDash      = validTargets.filter(item => item.startsWith('-'));
+  const withWildcard       = validTargets.filter(item => !item.startsWith('-') && item.includes('*'));
+  const withoutWildcard    = validTargets.filter(item => !item.startsWith('-') && !item.includes('*'));
 
   if (beginWithDash.length) {
     commands.push(...beginWithDash.map(target => `rm -rdf -- ${target}`));

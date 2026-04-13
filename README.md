@@ -2,14 +2,12 @@
 
 # Release GitHub Actions
 
-*Read this in other languages: [English](README.md), [日本語](README.ja.md).*
-
 This is a `GitHub Actions` that automates the release of `GitHub Actions`.  
 Once you create a new tag, this action will automatically
 1. Run build
-1. Create branch for release
-1. Change [tags](#tags) to release branch
-1. If there is release which has same tag name and has been published, re-publish it (Because if the tag is changed, the release will be in a draft state).
+2. Create branch for release
+3. Change [tags](#tags-) to release branch
+4. If there is release which has same tag name and has been published, re-publish it (Because if the tag is changed, the release will be in a draft state).
 
 ## Table of Contents
 
@@ -19,8 +17,6 @@ Once you create a new tag, this action will automatically
 <summary>Details</summary>
 
 - [Usage](#usage)
-- [CLI Tool](#cli-tool)
-- [Screenshot](#screenshot)
 - [Options](#options)
 - [Execute commands](#execute-commands)
   - [Build](#build)
@@ -30,11 +26,7 @@ Once you create a new tag, this action will automatically
   - [condition](#condition)
 - [Motivation](#motivation)
 - [Addition](#addition)
-  - [Tags](#tags)
-- [Author](#author)
-
-*generated with [TOC Generator](https://github.com/technote-space/toc-generator)*
-
+  - [Tags](#tags-)
 </details>
 <!-- END doctoc generated TOC please keep comment here to allow auto update -->
 
@@ -60,26 +52,27 @@ jobs:
 [More details of target event](#action-event-details)
 
 ## Options
-| name | description | default | required | e.g. |
-|:---:|:---|:---:|:---:|:---:|
-| BUILD_COMMAND | Build command<br>[More details of execute command](#execute-commands) | | | `yarn build:all` |
-| CLEAN_TARGETS | Files or directories to clean before release (Comma separated)<br>Absolute path and `..` are not permitted to use.<br>[More details of execute command](#execute-commands) | `.[!.]*,__tests__,docs,src,*.[jt]s,*.[mc][jt]s,*.json,*.lock,*.yml,*.yaml` | true | `.[!.]*,*.txt` |
-| PACKAGE_MANAGER | Package manager to use to install dependencies<br>If there is `yarn.lock` or` package-lock.json`, the action automatically determines the package manager to use, but this option can be used to specify it explicitly.<br>（`npm` or `yarn`） | | | `yarn` |
-| COMMIT_MESSAGE | Commit message | `feat: build for release` | true | `feat: release` |
-| COMMIT_NAME | Commit name | `github-actions[bot]` | true | |
-| COMMIT_EMAIL | Commit email | `41898282+github-actions[bot]@users.noreply.github.com` | true | |
-| BRANCH_NAME | Branch name for `GitHub Actions` release | `gh-actions` | true | `gh-actions/${MAJOR}/${MINOR}/${PATCH}` |
-| BUILD_COMMAND_TARGET | Command for search build command | `prepare, build, production, prod, package, pack` | | `compile` |
-| ALLOW_MULTIPLE_BUILD_COMMANDS | Whether to allow run multiple build commands. | `true` | | `false` |
-| CREATE_MAJOR_VERSION_TAG | Whether to create major version tag (e.g. v1)<br>[Detail of tags](#tags) | `true` | | `false` |
-| CREATE_MINOR_VERSION_TAG | Whether to create minor version tag (e.g. v1.2)<br>[Detail of tags](#tags) | `true` | | `false` |
-| CREATE_PATCH_VERSION_TAG | Whether to create patch version tag (e.g. v1.2.3)<br>[Detail of tags](#tags) | `true` | | `false` |
-| FETCH_DEPTH | Limit fetching to the specified number of commits from the tip of each remote branch history | `3` | | `5` |
-| TEST_TAG_PREFIX | Prefix for test tag | | | `test/` |
-| CLEAN_TEST_TAG | Whether to clean test tag | `false` | | `true` |
-| ORIGINAL_TAG_PREFIX | Prefix to add when leaving the original tag | | | `original/` |
-| DELETE_NODE_MODULES | Whether to delete node_modules | `false` | | `true` |
-| GITHUB_TOKEN | Access token | `${{github.token}}` | true | `${{secrets.ACCESS_TOKEN}}` |
+
+|             name              | description                                                                                                                                                                                                                                  |                                  default                                   | required |                  e.g.                   |
+|:-----------------------------:|:---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|:--------------------------------------------------------------------------:|:--------:|:---------------------------------------:|
+|         BUILD_COMMAND         | Build command<br>[More details of execute command](#execute-commands)                                                                                                                                                                        |                                                                            |          |            `yarn build:all`             |
+|         CLEAN_TARGETS         | Files or directories to clean before release (Comma separated)<br>Absolute path and `..` are not permitted to use.<br>[More details of execute command](#execute-commands)                                                                   | `.[!.]*,__tests__,docs,src,*.[jt]s,*.[mc][jt]s,*.json,*.lock,*.yml,*.yaml` |   true   |             `.[!.]*,*.txt`              |
+|        PACKAGE_MANAGER        | Package manager to use to install dependencies<br>If there is `yarn.lock` or` package-lock.json`, the action automatically determines the package manager to use, but this option can be used to specify it explicitly.<br>（`npm` or `yarn`） |                                                                            |          |                 `yarn`                  |
+|        COMMIT_MESSAGE         | Commit message                                                                                                                                                                                                                               |                         `feat: build for release`                          |   true   |             `feat: release`             |
+|          COMMIT_NAME          | Commit name                                                                                                                                                                                                                                  |                           `github-actions[bot]`                            |   true   |                                         |
+|         COMMIT_EMAIL          | Commit email                                                                                                                                                                                                                                 |          `41898282+github-actions[bot]@users.noreply.github.com`           |   true   |                                         |
+|          BRANCH_NAME          | Branch name for `GitHub Actions` release                                                                                                                                                                                                     |                                `gh-actions`                                |   true   | `gh-actions/${MAJOR}/${MINOR}/${PATCH}` |
+|     BUILD_COMMAND_TARGET      | Command for search build command                                                                                                                                                                                                             |             `prepare, build, production, prod, package, pack`              |          |                `compile`                |
+| ALLOW_MULTIPLE_BUILD_COMMANDS | Whether to allow run multiple build commands.                                                                                                                                                                                                |                                   `true`                                   |          |                 `false`                 |
+|   CREATE_MAJOR_VERSION_TAG    | Whether to create major version tag (e.g. v1)<br>[Detail of tags](#tags-)                                                                                                                                                                    |                                   `true`                                   |          |                 `false`                 |
+|   CREATE_MINOR_VERSION_TAG    | Whether to create minor version tag (e.g. v1.2)<br>[Detail of tags](#tags-)                                                                                                                                                                  |                                   `true`                                   |          |                 `false`                 |
+|   CREATE_PATCH_VERSION_TAG    | Whether to create patch version tag (e.g. v1.2.3)<br>[Detail of tags](#tags-)                                                                                                                                                                |                                   `true`                                   |          |                 `false`                 |
+|          FETCH_DEPTH          | Limit fetching to the specified number of commits from the tip of each remote branch history                                                                                                                                                 |                                    `3`                                     |          |                   `5`                   |
+|        TEST_TAG_PREFIX        | Prefix for test tag                                                                                                                                                                                                                          |                                                                            |          |                 `test/`                 |
+|        CLEAN_TEST_TAG         | Whether to clean test tag                                                                                                                                                                                                                    |                                  `false`                                   |          |                 `true`                  |
+|      ORIGINAL_TAG_PREFIX      | Prefix to add when leaving the original tag                                                                                                                                                                                                  |                                                                            |          |               `original/`               |
+|      DELETE_NODE_MODULES      | Whether to delete node_modules                                                                                                                                                                                                               |                                  `false`                                   |          |                 `true`                  |
+|         GITHUB_TOKEN          | Access token                                                                                                                                                                                                                                 |                            `${{github.token}}`                             |   true   |       `${{secrets.ACCESS_TOKEN}}`       |
 
 ## Execute commands
 ### Build
@@ -127,12 +120,14 @@ rm -rdf __tests__ docs src
 (action.yml is not subject to deletion.)
 
 ## Action event details
+
 ### Target events
-| eventName: action | condition |
-|:---:|:---:|
-|push: *|[condition](#condition)|
-|release: published|[condition](#condition)|
-|create: *|[condition](#condition)|
+
+| eventName: action  |        condition        |
+|:------------------:|:-----------------------:|
+|      push: *       | [condition](#condition) |
+| release: published | [condition](#condition) |
+|     create: *      | [condition](#condition) |
 
 ### condition
 - tags
@@ -143,22 +138,22 @@ rm -rdf __tests__ docs src
 Releasing `GitHub Actions` needs all build files and dependencies like `node_modules`, but are not usually committed.  
 So if you want to release `GitHub Actions`, you have to do following steps.  
 1. Develop locally on the branch for develop
-1. Build for release
-1. Commit all source code including dependencies like `node_modules` to branch for release
-1. Add tags (consider major, minor and patch versions)
-1. Push to GitHub
-1. Publish release
+2. Build for release
+3. Commit all source code including dependencies like `node_modules` to branch for release
+4. Add tags (consider major, minor and patch versions)
+5. Push to GitHub
+6. Publish release
 
 It is very troublesome to do this steps for every release.  
 
 If you use this `GitHub Actions`, the steps to do are simpler.
 1. Develop locally on the branch for develop
-1. Publish release (Create tag)
-1. Wait for the automated steps to finish
+2. Publish release (Create tag)
+3. Wait for the automated steps to finish
    1. Build for release
-   1. Commit all source code including dependencies like `node_modules` to branch for release
-   1. Add tags (consider major, minor and patch versions)
-   1. Push to GitHub
+   2. Commit all source code including dependencies like `node_modules` to branch for release
+   3. Add tags (consider major, minor and patch versions)
+   4. Push to GitHub
 
 ## Addition
 ### Tags 

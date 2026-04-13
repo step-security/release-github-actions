@@ -17,7 +17,7 @@ export default [
     ...common,
     input: 'src/main.ts',
     output: {
-      file: 'lib/main.js',
+      file: 'dist/main.js',
       format: 'es',
     },
   },
@@ -25,7 +25,7 @@ export default [
     ...common,
     input: 'src/index.ts',
     output: {
-      file: 'lib/index.cjs',
+      file: 'dist/index.cjs',
       format: 'cjs',
     },
   },
@@ -33,7 +33,7 @@ export default [
     ...common,
     input: 'src/index.ts',
     output: {
-      file: 'lib/index.mjs',
+      file: 'dist/index.mjs',
       format: 'es',
     },
   },

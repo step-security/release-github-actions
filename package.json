@@ -19,13 +19,13 @@
   "author": "step-security",
   "type": "module",
   "exports": {
-    "import": "./lib/index.mjs",
-    "require": "./lib/index.cjs"
+    "import": "./dist/index.mjs",
+    "require": "./dist/index.cjs"
   },
-  "main": "lib/index.mjs",
-  "types": "lib/index.d.ts",
+  "main": "dist/index.mjs",
+  "types": "dist/index.d.ts",
   "files": [
-    "lib",
+    "dist",
     "action.yml"
   ],
   "scripts": {
