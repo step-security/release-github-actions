@@ -1,0 +1,46 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: daily
+
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: daily
+
+  - package-ecosystem: npm
+    directory: /src/fixtures/test2
+    schedule:
+      interval: daily
+
+  - package-ecosystem: npm
+    directory: /src/fixtures/test3
+    schedule:
+      interval: daily
+
+  - package-ecosystem: npm
+    directory: /src/fixtures/test4
+    schedule:
+      interval: daily
+
+  - package-ecosystem: npm
+    directory: /src/fixtures/test5
+    schedule:
+      interval: daily
+
+  - package-ecosystem: npm
+    directory: /src/fixtures/test6
+    schedule:
+      interval: daily
+
+  - package-ecosystem: npm
+    directory: /src/fixtures/test7
+    schedule:
+      interval: daily
+
+  - package-ecosystem: npm
+    directory: /src/fixtures/test8
+    schedule:
+      interval: daily
