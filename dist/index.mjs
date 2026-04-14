@@ -89489,13 +89489,13 @@ const getClearFilesCommands = (targets) => {
     const commands = [];
     // Strict allowlist: only permit characters valid in file/glob patterns.
     // This prevents command injection via shell metacharacters (;|$`()&\n etc.)
-    const validTargetPattern = /^[a-zA-Z0-9._\-/*?\[\]!]+$/;
+    const validTargetPattern = /^[a-zA-Z0-9._\-/*?[\]!]+$/;
     const validTargets = targets.filter(target => validTargetPattern.test(target));
     const beginWithDash = validTargets.filter(item => item.startsWith('-'));
     const withWildcard = validTargets.filter(item => !item.startsWith('-') && item.includes('*'));
     const withoutWildcard = validTargets.filter(item => !item.startsWith('-') && !item.includes('*'));
     if (beginWithDash.length) {
-        commands.push(...beginWithDash.map(target => ({ command: 'rm', args: ['-rdf', '--', target] })));
+        commands.push(...beginWithDash.map(target => `rm -rdf -- ${target}`));
     }
     if (withWildcard.length) {
         commands.push(...withWildcard.map(target => `rm -rdf ${target}`));
