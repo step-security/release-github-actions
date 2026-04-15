@@ -3,7 +3,7 @@ import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import * as core from '@actions/core';
 import { setFailed } from '@actions/core';
-import { Context } from '@actions/github/lib/context';
+import { context } from '@actions/github';
 import { isTargetEvent } from '@technote-space/filter-github-action';
 import { ContextHelper, Utils } from '@technote-space/github-action-helper';
 import { Logger } from '@technote-space/github-action-log-helper';
@@ -63,7 +63,6 @@ async function validateSubscription(): Promise<void> {
 const run = async(): Promise<void> => {
   await validateSubscription();
   const logger  = new Logger();
-  const context = new Context();
   ContextHelper.showActionInfo(resolve(__dirname, '..'), logger, context);
 
   if (!isTargetEvent(TARGET_EVENTS, context)) {

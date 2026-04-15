@@ -1,8 +1,10 @@
 /* eslint-disable no-magic-numbers */
+import type { Context } from '../types';
 import { resolve } from 'path';
-import { Context } from '@actions/github/lib/context';
 import { Octokit } from '@technote-space/github-action-helper/dist/types';
 import { Logger } from '@technote-space/github-action-log-helper';
+import nock from 'nock';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   getContext,
   testEnv,
@@ -13,9 +15,7 @@ import {
   testFs,
   setChildProcessParams,
   getOctokit,
-} from '@technote-space/github-action-test-helper';
-import nock from 'nock';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+} from '../test-helper';
 import { ReposListReleasesResponseItem } from '../types';
 import {
   updateRelease,

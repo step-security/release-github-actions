@@ -1,9 +1,9 @@
 /* eslint-disable no-magic-numbers */
 import { resolve } from 'path';
 import { isTargetEvent } from '@technote-space/filter-github-action';
-import { testEnv, generateContext } from '@technote-space/github-action-test-helper';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { DEFAULT_FETCH_DEPTH, TARGET_EVENTS } from '../constant';
+import { testEnv, generateContext } from '../test-helper';
 import {
   getParams,
   getSearchBuildCommandTargets,

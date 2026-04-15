@@ -1,4 +1,4 @@
-import type { Context } from '@actions/github/lib/context';
+import type { Context } from '../types';
 import fs from 'fs';
 import { resolve } from 'path';
 import { getInput } from '@actions/core' ;

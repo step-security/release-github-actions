@@ -1,5 +1,5 @@
 import type { ReposListReleasesResponseItem } from '../types';
-import type { Context } from '@actions/github/lib/context';
+import type { Context } from '../types';
 import type { Octokit } from '@technote-space/github-action-helper/dist/types';
 import { Command, GitHelper } from '@technote-space/github-action-helper';
 import { Logger } from '@technote-space/github-action-log-helper';

@@ -1,0 +1,11 @@
+[[IgnoredVulns]]
+id = "GHSA-h5c3-5r3r-rr8q"
+reason = "@octokit/plugin-paginate-rest - Not exploitable; pagination not used by this action, only simple REST calls (listReleases, updateRelease)"
+
+[[IgnoredVulns]]
+id = "GHSA-rmvr-2pp2-xj38"
+reason = "@octokit/request - Not exploitable; ReDoS requires attacker-controlled input, action only calls trusted GitHub API endpoints"
+
+[[IgnoredVulns]]
+id = "GHSA-xx4v-prfh-6cgc"
+reason = "@octokit/request-error - Not exploitable; ReDoS requires attacker-controlled input, action only calls trusted GitHub API endpoints"

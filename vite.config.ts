@@ -1,7 +1,5 @@
-/// <reference types="vitest" />
-import { defineConfig } from 'vite';
+import { defineConfig } from 'vitest/config';
 
-// https://vitejs.dev/config/
 export default defineConfig({
   test: {
     setupFiles: './src/setup.ts',
@@ -11,8 +9,10 @@ export default defineConfig({
     coverage: {
       reporter: ['html', 'lcov', 'text'],
     },
-    deps: {
-      inline: [/github-action-test-helper/, /github-action-helper/]
+    server: {
+      deps: {
+        inline: [/github-action-helper/]
+      },
     },
   },
 });

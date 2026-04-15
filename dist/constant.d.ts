@@ -1,4 +1,4 @@
-import type { Context } from '@actions/github/lib/context';
+import type { Context } from './types';
 export declare const DEFAULT_FETCH_DEPTH = 3;
 export declare const TARGET_EVENTS: {
     create: ((context: Context) => boolean)[];
