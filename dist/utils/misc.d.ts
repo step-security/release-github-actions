@@ -1,4 +1,4 @@
-import type { Context } from '@actions/github/lib/context';
+import type { Context } from '../types';
 import memize from 'memize';
 type CommandType = string | {
     command: string;

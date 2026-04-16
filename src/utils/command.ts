@@ -1,5 +1,5 @@
 import type { ReposListReleasesResponseItem } from '../types';
-import type { Context } from '@actions/github/lib/context';
+import type { Context } from '../types';
 import type { Octokit } from '@technote-space/github-action-helper/dist/types';
 import fs from 'fs';
 import { resolve, dirname } from 'path';

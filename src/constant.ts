@@ -1,4 +1,4 @@
-import type { Context } from '@actions/github/lib/context';
+import type { Context } from './types';
 import { isValidContext } from './utils/misc';
 
 export const DEFAULT_FETCH_DEPTH = 3;
