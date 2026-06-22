@@ -93379,6 +93379,7 @@ let DispatcherBase$5 = class DispatcherBase extends Dispatcher$3 {
 
   get webSocketOptions () {
     return {
+      maxFragments: this[kWebSocketOptions].maxFragments ?? 131072,
       maxPayloadSize: this[kWebSocketOptions].maxPayloadSize ?? 128 * 1024 * 1024
     }
   }
@@ -99288,6 +99289,9 @@ const EMPTY_BUF = Buffer.alloc(0);
 const FastBuffer = Buffer[Symbol.species];
 const addListener = util$j.addListener;
 const removeAllListeners = util$j.removeAllListeners;
+const kIdleSocketValidation = Symbol('kIdleSocketValidation');
+const kIdleSocketValidationTimeout = Symbol('kIdleSocketValidationTimeout');
+const kSocketUsed = Symbol('kSocketUsed');
 
 let extractBody$1;
 
@@ -99510,27 +99514,69 @@ class Parser {
 
       const offset = llhttp.llhttp_get_error_pos(this.ptr) - currentBufferPtr;
 
-      if (ret === constants$2.ERROR.PAUSED_UPGRADE) {
-        this.onUpgrade(data.slice(offset));
-      } else if (ret === constants$2.ERROR.PAUSED) {
-        this.paused = true;
-        socket.unshift(data.slice(offset));
-      } else if (ret !== constants$2.ERROR.OK) {
-        const ptr = llhttp.llhttp_get_error_reason(this.ptr);
-        let message = '';
-        /* istanbul ignore else: difficult to make a test case for */
-        if (ptr) {
-          const len = new Uint8Array(llhttp.memory.buffer, ptr).indexOf(0);
-          message =
-            'Response does not match the HTTP/1.1 protocol (' +
-            Buffer.from(llhttp.memory.buffer, ptr, len).toString() +
-            ')';
+      if (ret !== constants$2.ERROR.OK) {
+        const body = data.subarray(offset);
+
+        if (ret === constants$2.ERROR.PAUSED_UPGRADE) {
+          this.onUpgrade(body);
+        } else if (ret === constants$2.ERROR.PAUSED) {
+          this.paused = true;
+          socket.unshift(body);
+        } else {
+          throw this.createError(ret, body)
         }
-        throw new HTTPParserError(message, constants$2.ERROR[ret], data.slice(offset))
       }
     } catch (err) {
       util$j.destroy(socket, err);
     }
+  }
+
+  finish () {
+    assert$b(currentParser === null);
+    assert$b(this.ptr != null);
+    assert$b(!this.paused);
+
+    const { llhttp } = this;
+
+    let ret;
+
+    try {
+      currentParser = this;
+      ret = llhttp.llhttp_finish(this.ptr);
+    } finally {
+      currentParser = null;
+    }
+
+    if (ret === constants$2.ERROR.OK) {
+      return null
+    }
+
+    if (ret === constants$2.ERROR.PAUSED || ret === constants$2.ERROR.PAUSED_UPGRADE) {
+      this.paused = true;
+      return null
+    }
+
+    return this.createError(ret, EMPTY_BUF)
+  }
+
+  createError (ret, data) {
+    const { llhttp, contentLength, bytesRead } = this;
+
+    if (contentLength && bytesRead !== parseInt(contentLength, 10)) {
+      return new ResponseContentLengthMismatchError()
+    }
+
+    const ptr = llhttp.llhttp_get_error_reason(this.ptr);
+    let message = '';
+    if (ptr) {
+      const len = new Uint8Array(llhttp.memory.buffer, ptr).indexOf(0);
+      message =
+        'Response does not match the HTTP/1.1 protocol (' +
+        Buffer.from(llhttp.memory.buffer, ptr, len).toString() +
+        ')';
+    }
+
+    return new HTTPParserError(message, constants$2.ERROR[ret], data)
   }
 
   destroy () {
@@ -99557,6 +99603,11 @@ class Parser {
 
     /* istanbul ignore next: difficult to make a test case for */
     if (socket.destroyed) {
+      return -1
+    }
+
+    if (client[kRunning$5] === 0) {
+      util$j.destroy(socket, new SocketError$3('bad response', util$j.getSocketInfo(socket)));
       return -1
     }
 
@@ -99660,6 +99711,11 @@ class Parser {
 
     /* istanbul ignore next: difficult to make a test case for */
     if (socket.destroyed) {
+      return -1
+    }
+
+    if (client[kRunning$5] === 0) {
+      util$j.destroy(socket, new SocketError$3('bad response', util$j.getSocketInfo(socket)));
       return -1
     }
 
@@ -99836,6 +99892,7 @@ class Parser {
     request.onComplete(headers);
 
     client[kQueue$3][client[kRunningIdx$2]++] = null;
+    socket[kSocketUsed] = true;
 
     if (socket[kWriting]) {
       assert$b(client[kRunning$5] === 0);
@@ -99894,6 +99951,9 @@ async function connectH1$1 (client, socket) {
   socket[kWriting] = false;
   socket[kReset$1] = false;
   socket[kBlocking] = false;
+  socket[kIdleSocketValidation] = 0;
+  socket[kIdleSocketValidationTimeout] = null;
+  socket[kSocketUsed] = false;
   socket[kParser] = new Parser(client, socket, llhttpInstance);
 
   addListener(socket, 'error', function (err) {
@@ -99904,8 +99964,11 @@ async function connectH1$1 (client, socket) {
     // On Mac OS, we get an ECONNRESET even if there is a full body to be forwarded
     // to the user.
     if (err.code === 'ECONNRESET' && parser.statusCode && !parser.shouldKeepAlive) {
-      // We treat all incoming data so for as a valid response.
-      parser.onMessageComplete();
+      const parserErr = parser.finish();
+      if (parserErr) {
+        this[kError$2] = parserErr;
+        this[kClient$3][kOnError$2](parserErr);
+      }
       return
     }
 
@@ -99924,8 +99987,10 @@ async function connectH1$1 (client, socket) {
     const parser = this[kParser];
 
     if (parser.statusCode && !parser.shouldKeepAlive) {
-      // We treat all incoming data so far as a valid response.
-      parser.onMessageComplete();
+      const parserErr = parser.finish();
+      if (parserErr) {
+        util$j.destroy(this, parserErr);
+      }
       return
     }
 
@@ -99935,10 +100000,11 @@ async function connectH1$1 (client, socket) {
     const client = this[kClient$3];
     const parser = this[kParser];
 
+    clearIdleSocketValidation(this);
+
     if (parser) {
       if (!this[kError$2] && parser.statusCode && !parser.shouldKeepAlive) {
-        // We treat all incoming data so far as a valid response.
-        parser.onMessageComplete();
+        this[kError$2] = parser.finish() || this[kError$2];
       }
 
       this[kParser].destroy();
@@ -100001,7 +100067,7 @@ async function connectH1$1 (client, socket) {
       return socket.destroyed
     },
     busy (request) {
-      if (socket[kWriting] || socket[kReset$1] || socket[kBlocking]) {
+      if (socket[kWriting] || socket[kReset$1] || socket[kBlocking] || socket[kIdleSocketValidation] === 1) {
         return true
       }
 
@@ -100039,6 +100105,31 @@ async function connectH1$1 (client, socket) {
   }
 }
 
+function clearIdleSocketValidation (socket) {
+  if (socket[kIdleSocketValidationTimeout]) {
+    clearTimeout(socket[kIdleSocketValidationTimeout]);
+    socket[kIdleSocketValidationTimeout] = null;
+  }
+
+  socket[kIdleSocketValidation] = 0;
+}
+
+function scheduleIdleSocketValidation (client, socket) {
+  socket[kIdleSocketValidation] = 1;
+  socket[kIdleSocketValidationTimeout] = setTimeout(() => {
+    socket[kIdleSocketValidationTimeout] = null;
+    socket[kIdleSocketValidation] = 2;
+
+    if (client[kSocket$1] === socket && !socket.destroyed) {
+      client[kResume$3]();
+    }
+  }, 0);
+  socket[kIdleSocketValidationTimeout].unref?.();
+}
+
+/**
+ * @param {import('./client.js')} client
+ */
 function resumeH1 (client) {
   const socket = client[kSocket$1];
 
@@ -100051,6 +100142,32 @@ function resumeH1 (client) {
     } else if (socket[kNoRef] && socket.ref) {
       socket.ref();
       socket[kNoRef] = false;
+    }
+
+    if (client[kRunning$5] === 0 && client[kPending$4] > 0 && socket[kSocketUsed]) {
+      if (socket[kIdleSocketValidation] === 0) {
+        scheduleIdleSocketValidation(client, socket);
+        socket[kParser].readMore();
+        if (socket.destroyed) {
+          return
+        }
+        return
+      }
+
+      if (socket[kIdleSocketValidation] === 1) {
+        socket[kParser].readMore();
+        if (socket.destroyed) {
+          return
+        }
+        return
+      }
+    }
+
+    if (client[kRunning$5] === 0) {
+      socket[kParser].readMore();
+      if (socket.destroyed) {
+        return
+      }
     }
 
     if (client[kSize$5] === 0) {
@@ -100146,6 +100263,7 @@ function writeH1 (client, request) {
   }
 
   const socket = client[kSocket$1];
+  clearIdleSocketValidation(socket);
 
   const abort = (err) => {
     if (request.aborted || request.completed) {
@@ -102876,7 +102994,6 @@ function defaultFactory$1 (origin, opts) {
 
 let Agent$5 = class Agent extends DispatcherBase$2 {
   constructor ({ factory = defaultFactory$1, maxRedirections = 0, connect, ...options } = {}) {
-
     if (typeof factory !== 'function') {
       throw new InvalidArgumentError$f('factory must be a function.')
     }
@@ -114299,32 +114416,25 @@ function requireParse () {
 	    // If the attribute-name case-insensitively matches the string
 	    // "SameSite", the user agent MUST process the cookie-av as follows:
 
-	    // 1. Let enforcement be "Default".
-	    let enforcement = 'Default';
-
 	    const attributeValueLowercase = attributeValue.toLowerCase();
-	    // 2. If cookie-av's attribute-value is a case-insensitive match for
-	    //    "None", set enforcement to "None".
-	    if (attributeValueLowercase.includes('none')) {
-	      enforcement = 'None';
-	    }
 
-	    // 3. If cookie-av's attribute-value is a case-insensitive match for
-	    //    "Strict", set enforcement to "Strict".
-	    if (attributeValueLowercase.includes('strict')) {
-	      enforcement = 'Strict';
+	    // 1. If cookie-av's attribute-value is a case-insensitive match for
+	    //    "None", append an attribute to the cookie-attribute-list with an
+	    //    attribute-name of "SameSite" and an attribute-value of "None".
+	    if (attributeValueLowercase === 'none') {
+	      cookieAttributeList.sameSite = 'None';
+	    } else if (attributeValueLowercase === 'strict') {
+	      // 2. If cookie-av's attribute-value is a case-insensitive match for
+	      //    "Strict", append an attribute to the cookie-attribute-list with
+	      //    an attribute-name of "SameSite" and an attribute-value of
+	      //    "Strict".
+	      cookieAttributeList.sameSite = 'Strict';
+	    } else if (attributeValueLowercase === 'lax') {
+	      // 3. If cookie-av's attribute-value is a case-insensitive match for
+	      //    "Lax", append an attribute to the cookie-attribute-list with an
+	      //    attribute-name of "SameSite" and an attribute-value of "Lax".
+	      cookieAttributeList.sameSite = 'Lax';
 	    }
-
-	    // 4. If cookie-av's attribute-value is a case-insensitive match for
-	    //    "Lax", set enforcement to "Lax".
-	    if (attributeValueLowercase.includes('lax')) {
-	      enforcement = 'Lax';
-	    }
-
-	    // 5. Append an attribute to the cookie-attribute-list with an
-	    //    attribute-name of "SameSite" and an attribute-value of
-	    //    enforcement.
-	    cookieAttributeList.sameSite = enforcement;
 	  } else {
 	    cookieAttributeList.unparsed ??= [];
 
@@ -115910,6 +116020,11 @@ function requireReceiver () {
 	const { PerMessageDeflate } = requirePermessageDeflate();
 	const { MessageSizeExceededError } = errors$1;
 
+	function failWebsocketConnectionWithCode (ws, code, reason) {
+	  closeWebSocketConnection(ws, code, reason, Buffer.byteLength(reason));
+	  failWebsocketConnection(ws, reason);
+	}
+
 	// This code was influenced by ws released under the MIT license.
 	// Copyright (c) 2011 Einar Otto Stangvik <einaros@gmail.com>
 	// Copyright (c) 2013 Arnout Kazemier and contributors
@@ -115930,18 +116045,22 @@ function requireReceiver () {
 	  #extensions
 
 	  /** @type {number} */
+	  #maxFragments
+
+	  /** @type {number} */
 	  #maxPayloadSize
 
 	  /**
 	   * @param {import('./websocket').WebSocket} ws
 	   * @param {Map<string, string>|null} extensions
-	   * @param {{ maxPayloadSize?: number }} [options]
+	   * @param {{ maxFragments?: number, maxPayloadSize?: number }} [options]
 	   */
 	  constructor (ws, extensions, options = {}) {
 	    super();
 
 	    this.ws = ws;
 	    this.#extensions = extensions == null ? new Map() : extensions;
+	    this.#maxFragments = options.maxFragments ?? 0;
 	    this.#maxPayloadSize = options.maxPayloadSize ?? 0;
 
 	    if (this.#extensions.has('permessage-deflate')) {
@@ -115965,9 +116084,9 @@ function requireReceiver () {
 	    if (
 	      this.#maxPayloadSize > 0 &&
 	      !isControlFrame(this.#info.opcode) &&
-	      this.#info.payloadLength > this.#maxPayloadSize
+	      this.#info.payloadLength + this.#fragmentsBytes > this.#maxPayloadSize
 	    ) {
-	      failWebsocketConnection(this.ws, 'Payload size exceeds maximum allowed size');
+	      failWebsocketConnectionWithCode(this.ws, 1009, 'Payload size exceeds maximum allowed size');
 	      return false
 	    }
 
@@ -116132,10 +116251,12 @@ function requireReceiver () {
 	          this.#state = parserStates.INFO;
 	        } else {
 	          if (!this.#info.compressed) {
-	            this.writeFragments(body);
+	            if (!this.writeFragments(body)) {
+	              return
+	            }
 
 	            if (this.#maxPayloadSize > 0 && this.#fragmentsBytes > this.#maxPayloadSize) {
-	              failWebsocketConnection(this.ws, new MessageSizeExceededError().message);
+	              failWebsocketConnectionWithCode(this.ws, 1009, new MessageSizeExceededError().message);
 	              return
 	            }
 
@@ -116154,14 +116275,17 @@ function requireReceiver () {
 	              this.#info.fin,
 	              (error, data) => {
 	                if (error) {
-	                  failWebsocketConnection(this.ws, error.message);
+	                  const code = error instanceof MessageSizeExceededError ? 1009 : 1007;
+	                  failWebsocketConnectionWithCode(this.ws, code, error.message);
 	                  return
 	                }
 
-	                this.writeFragments(data);
+	                if (!this.writeFragments(data)) {
+	                  return
+	                }
 
 	                if (this.#maxPayloadSize > 0 && this.#fragmentsBytes > this.#maxPayloadSize) {
-	                  failWebsocketConnection(this.ws, new MessageSizeExceededError().message);
+	                  failWebsocketConnectionWithCode(this.ws, 1009, new MessageSizeExceededError().message);
 	                  return
 	                }
 
@@ -116231,8 +116355,17 @@ function requireReceiver () {
 	  }
 
 	  writeFragments (fragment) {
+	    if (
+	      this.#maxFragments > 0 &&
+	      this.#fragments.length === this.#maxFragments
+	    ) {
+	      failWebsocketConnectionWithCode(this.ws, 1008, 'Too many message fragments');
+	      return false
+	    }
+
 	    this.#fragmentsBytes += fragment.length;
 	    this.#fragments.push(fragment);
+	    return true
 	  }
 
 	  consumeFragments () {
@@ -116935,9 +117068,12 @@ function requireWebsocket () {
 	    // once this happens, the connection is open
 	    this[kResponse] = response;
 
-	    const maxPayloadSize = this[kController]?.dispatcher?.webSocketOptions?.maxPayloadSize;
+	    const webSocketOptions = this[kController]?.dispatcher?.webSocketOptions;
+	    const maxFragments = webSocketOptions?.maxFragments;
+	    const maxPayloadSize = webSocketOptions?.maxPayloadSize;
 
 	    const parser = new ByteParser(this, parsedExtensions, {
+	      maxFragments,
 	      maxPayloadSize
 	    });
 	    parser.on('drain', onParserDrain);

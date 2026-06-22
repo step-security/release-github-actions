@@ -2859,6 +2859,7 @@ let DispatcherBase$5 = class DispatcherBase extends Dispatcher$3 {
 
   get webSocketOptions () {
     return {
+      maxFragments: this[kWebSocketOptions].maxFragments ?? 131072,
       maxPayloadSize: this[kWebSocketOptions].maxPayloadSize ?? 128 * 1024 * 1024
     }
   }
@@ -8768,6 +8769,9 @@ const EMPTY_BUF = Buffer.alloc(0);
 const FastBuffer = Buffer[Symbol.species];
 const addListener = util$m.addListener;
 const removeAllListeners = util$m.removeAllListeners;
+const kIdleSocketValidation = Symbol('kIdleSocketValidation');
+const kIdleSocketValidationTimeout = Symbol('kIdleSocketValidationTimeout');
+const kSocketUsed = Symbol('kSocketUsed');
 
 let extractBody$1;
 
@@ -8990,27 +8994,69 @@ class Parser {
 
       const offset = llhttp.llhttp_get_error_pos(this.ptr) - currentBufferPtr;
 
-      if (ret === constants$2.ERROR.PAUSED_UPGRADE) {
-        this.onUpgrade(data.slice(offset));
-      } else if (ret === constants$2.ERROR.PAUSED) {
-        this.paused = true;
-        socket.unshift(data.slice(offset));
-      } else if (ret !== constants$2.ERROR.OK) {
-        const ptr = llhttp.llhttp_get_error_reason(this.ptr);
-        let message = '';
-        /* istanbul ignore else: difficult to make a test case for */
-        if (ptr) {
-          const len = new Uint8Array(llhttp.memory.buffer, ptr).indexOf(0);
-          message =
-            'Response does not match the HTTP/1.1 protocol (' +
-            Buffer.from(llhttp.memory.buffer, ptr, len).toString() +
-            ')';
+      if (ret !== constants$2.ERROR.OK) {
+        const body = data.subarray(offset);
+
+        if (ret === constants$2.ERROR.PAUSED_UPGRADE) {
+          this.onUpgrade(body);
+        } else if (ret === constants$2.ERROR.PAUSED) {
+          this.paused = true;
+          socket.unshift(body);
+        } else {
+          throw this.createError(ret, body)
         }
-        throw new HTTPParserError(message, constants$2.ERROR[ret], data.slice(offset))
       }
     } catch (err) {
       util$m.destroy(socket, err);
     }
+  }
+
+  finish () {
+    assert$c(currentParser === null);
+    assert$c(this.ptr != null);
+    assert$c(!this.paused);
+
+    const { llhttp } = this;
+
+    let ret;
+
+    try {
+      currentParser = this;
+      ret = llhttp.llhttp_finish(this.ptr);
+    } finally {
+      currentParser = null;
+    }
+
+    if (ret === constants$2.ERROR.OK) {
+      return null
+    }
+
+    if (ret === constants$2.ERROR.PAUSED || ret === constants$2.ERROR.PAUSED_UPGRADE) {
+      this.paused = true;
+      return null
+    }
+
+    return this.createError(ret, EMPTY_BUF)
+  }
+
+  createError (ret, data) {
+    const { llhttp, contentLength, bytesRead } = this;
+
+    if (contentLength && bytesRead !== parseInt(contentLength, 10)) {
+      return new ResponseContentLengthMismatchError()
+    }
+
+    const ptr = llhttp.llhttp_get_error_reason(this.ptr);
+    let message = '';
+    if (ptr) {
+      const len = new Uint8Array(llhttp.memory.buffer, ptr).indexOf(0);
+      message =
+        'Response does not match the HTTP/1.1 protocol (' +
+        Buffer.from(llhttp.memory.buffer, ptr, len).toString() +
+        ')';
+    }
+
+    return new HTTPParserError(message, constants$2.ERROR[ret], data)
   }
 
   destroy () {
@@ -9037,6 +9083,11 @@ class Parser {
 
     /* istanbul ignore next: difficult to make a test case for */
     if (socket.destroyed) {
+      return -1
+    }
+
+    if (client[kRunning$5] === 0) {
+      util$m.destroy(socket, new SocketError$3('bad response', util$m.getSocketInfo(socket)));
       return -1
     }
 
@@ -9140,6 +9191,11 @@ class Parser {
 
     /* istanbul ignore next: difficult to make a test case for */
     if (socket.destroyed) {
+      return -1
+    }
+
+    if (client[kRunning$5] === 0) {
+      util$m.destroy(socket, new SocketError$3('bad response', util$m.getSocketInfo(socket)));
       return -1
     }
 
@@ -9316,6 +9372,7 @@ class Parser {
     request.onComplete(headers);
 
     client[kQueue$3][client[kRunningIdx$2]++] = null;
+    socket[kSocketUsed] = true;
 
     if (socket[kWriting]) {
       assert$c(client[kRunning$5] === 0);
@@ -9374,6 +9431,9 @@ async function connectH1$1 (client, socket) {
   socket[kWriting] = false;
   socket[kReset$1] = false;
   socket[kBlocking] = false;
+  socket[kIdleSocketValidation] = 0;
+  socket[kIdleSocketValidationTimeout] = null;
+  socket[kSocketUsed] = false;
   socket[kParser] = new Parser(client, socket, llhttpInstance);
 
   addListener(socket, 'error', function (err) {
@@ -9384,8 +9444,11 @@ async function connectH1$1 (client, socket) {
     // On Mac OS, we get an ECONNRESET even if there is a full body to be forwarded
     // to the user.
     if (err.code === 'ECONNRESET' && parser.statusCode && !parser.shouldKeepAlive) {
-      // We treat all incoming data so for as a valid response.
-      parser.onMessageComplete();
+      const parserErr = parser.finish();
+      if (parserErr) {
+        this[kError$2] = parserErr;
+        this[kClient$3][kOnError$2](parserErr);
+      }
       return
     }
 
@@ -9404,8 +9467,10 @@ async function connectH1$1 (client, socket) {
     const parser = this[kParser];
 
     if (parser.statusCode && !parser.shouldKeepAlive) {
-      // We treat all incoming data so far as a valid response.
-      parser.onMessageComplete();
+      const parserErr = parser.finish();
+      if (parserErr) {
+        util$m.destroy(this, parserErr);
+      }
       return
     }
 
@@ -9415,10 +9480,11 @@ async function connectH1$1 (client, socket) {
     const client = this[kClient$3];
     const parser = this[kParser];
 
+    clearIdleSocketValidation(this);
+
     if (parser) {
       if (!this[kError$2] && parser.statusCode && !parser.shouldKeepAlive) {
-        // We treat all incoming data so far as a valid response.
-        parser.onMessageComplete();
+        this[kError$2] = parser.finish() || this[kError$2];
       }
 
       this[kParser].destroy();
@@ -9481,7 +9547,7 @@ async function connectH1$1 (client, socket) {
       return socket.destroyed
     },
     busy (request) {
-      if (socket[kWriting] || socket[kReset$1] || socket[kBlocking]) {
+      if (socket[kWriting] || socket[kReset$1] || socket[kBlocking] || socket[kIdleSocketValidation] === 1) {
         return true
       }
 
@@ -9519,6 +9585,31 @@ async function connectH1$1 (client, socket) {
   }
 }
 
+function clearIdleSocketValidation (socket) {
+  if (socket[kIdleSocketValidationTimeout]) {
+    clearTimeout(socket[kIdleSocketValidationTimeout]);
+    socket[kIdleSocketValidationTimeout] = null;
+  }
+
+  socket[kIdleSocketValidation] = 0;
+}
+
+function scheduleIdleSocketValidation (client, socket) {
+  socket[kIdleSocketValidation] = 1;
+  socket[kIdleSocketValidationTimeout] = setTimeout(() => {
+    socket[kIdleSocketValidationTimeout] = null;
+    socket[kIdleSocketValidation] = 2;
+
+    if (client[kSocket$1] === socket && !socket.destroyed) {
+      client[kResume$3]();
+    }
+  }, 0);
+  socket[kIdleSocketValidationTimeout].unref?.();
+}
+
+/**
+ * @param {import('./client.js')} client
+ */
 function resumeH1 (client) {
   const socket = client[kSocket$1];
 
@@ -9531,6 +9622,32 @@ function resumeH1 (client) {
     } else if (socket[kNoRef] && socket.ref) {
       socket.ref();
       socket[kNoRef] = false;
+    }
+
+    if (client[kRunning$5] === 0 && client[kPending$4] > 0 && socket[kSocketUsed]) {
+      if (socket[kIdleSocketValidation] === 0) {
+        scheduleIdleSocketValidation(client, socket);
+        socket[kParser].readMore();
+        if (socket.destroyed) {
+          return
+        }
+        return
+      }
+
+      if (socket[kIdleSocketValidation] === 1) {
+        socket[kParser].readMore();
+        if (socket.destroyed) {
+          return
+        }
+        return
+      }
+    }
+
+    if (client[kRunning$5] === 0) {
+      socket[kParser].readMore();
+      if (socket.destroyed) {
+        return
+      }
     }
 
     if (client[kSize$5] === 0) {
@@ -9626,6 +9743,7 @@ function writeH1 (client, request) {
   }
 
   const socket = client[kSocket$1];
+  clearIdleSocketValidation(socket);
 
   const abort = (err) => {
     if (request.aborted || request.completed) {
@@ -12356,7 +12474,6 @@ function defaultFactory$1 (origin, opts) {
 
 let Agent$5 = class Agent extends DispatcherBase$2 {
   constructor ({ factory = defaultFactory$1, maxRedirections = 0, connect, ...options } = {}) {
-
     if (typeof factory !== 'function') {
       throw new InvalidArgumentError$f('factory must be a function.')
     }
@@ -23779,32 +23896,25 @@ function requireParse () {
 	    // If the attribute-name case-insensitively matches the string
 	    // "SameSite", the user agent MUST process the cookie-av as follows:
 
-	    // 1. Let enforcement be "Default".
-	    let enforcement = 'Default';
-
 	    const attributeValueLowercase = attributeValue.toLowerCase();
-	    // 2. If cookie-av's attribute-value is a case-insensitive match for
-	    //    "None", set enforcement to "None".
-	    if (attributeValueLowercase.includes('none')) {
-	      enforcement = 'None';
-	    }
 
-	    // 3. If cookie-av's attribute-value is a case-insensitive match for
-	    //    "Strict", set enforcement to "Strict".
-	    if (attributeValueLowercase.includes('strict')) {
-	      enforcement = 'Strict';
+	    // 1. If cookie-av's attribute-value is a case-insensitive match for
+	    //    "None", append an attribute to the cookie-attribute-list with an
+	    //    attribute-name of "SameSite" and an attribute-value of "None".
+	    if (attributeValueLowercase === 'none') {
+	      cookieAttributeList.sameSite = 'None';
+	    } else if (attributeValueLowercase === 'strict') {
+	      // 2. If cookie-av's attribute-value is a case-insensitive match for
+	      //    "Strict", append an attribute to the cookie-attribute-list with
+	      //    an attribute-name of "SameSite" and an attribute-value of
+	      //    "Strict".
+	      cookieAttributeList.sameSite = 'Strict';
+	    } else if (attributeValueLowercase === 'lax') {
+	      // 3. If cookie-av's attribute-value is a case-insensitive match for
+	      //    "Lax", append an attribute to the cookie-attribute-list with an
+	      //    attribute-name of "SameSite" and an attribute-value of "Lax".
+	      cookieAttributeList.sameSite = 'Lax';
 	    }
-
-	    // 4. If cookie-av's attribute-value is a case-insensitive match for
-	    //    "Lax", set enforcement to "Lax".
-	    if (attributeValueLowercase.includes('lax')) {
-	      enforcement = 'Lax';
-	    }
-
-	    // 5. Append an attribute to the cookie-attribute-list with an
-	    //    attribute-name of "SameSite" and an attribute-value of
-	    //    enforcement.
-	    cookieAttributeList.sameSite = enforcement;
 	  } else {
 	    cookieAttributeList.unparsed ??= [];
 
@@ -25390,6 +25500,11 @@ function requireReceiver () {
 	const { PerMessageDeflate } = requirePermessageDeflate();
 	const { MessageSizeExceededError } = errors$1;
 
+	function failWebsocketConnectionWithCode (ws, code, reason) {
+	  closeWebSocketConnection(ws, code, reason, Buffer.byteLength(reason));
+	  failWebsocketConnection(ws, reason);
+	}
+
 	// This code was influenced by ws released under the MIT license.
 	// Copyright (c) 2011 Einar Otto Stangvik <einaros@gmail.com>
 	// Copyright (c) 2013 Arnout Kazemier and contributors
@@ -25410,18 +25525,22 @@ function requireReceiver () {
 	  #extensions
 
 	  /** @type {number} */
+	  #maxFragments
+
+	  /** @type {number} */
 	  #maxPayloadSize
 
 	  /**
 	   * @param {import('./websocket').WebSocket} ws
 	   * @param {Map<string, string>|null} extensions
-	   * @param {{ maxPayloadSize?: number }} [options]
+	   * @param {{ maxFragments?: number, maxPayloadSize?: number }} [options]
 	   */
 	  constructor (ws, extensions, options = {}) {
 	    super();
 
 	    this.ws = ws;
 	    this.#extensions = extensions == null ? new Map() : extensions;
+	    this.#maxFragments = options.maxFragments ?? 0;
 	    this.#maxPayloadSize = options.maxPayloadSize ?? 0;
 
 	    if (this.#extensions.has('permessage-deflate')) {
@@ -25445,9 +25564,9 @@ function requireReceiver () {
 	    if (
 	      this.#maxPayloadSize > 0 &&
 	      !isControlFrame(this.#info.opcode) &&
-	      this.#info.payloadLength > this.#maxPayloadSize
+	      this.#info.payloadLength + this.#fragmentsBytes > this.#maxPayloadSize
 	    ) {
-	      failWebsocketConnection(this.ws, 'Payload size exceeds maximum allowed size');
+	      failWebsocketConnectionWithCode(this.ws, 1009, 'Payload size exceeds maximum allowed size');
 	      return false
 	    }
 
@@ -25612,10 +25731,12 @@ function requireReceiver () {
 	          this.#state = parserStates.INFO;
 	        } else {
 	          if (!this.#info.compressed) {
-	            this.writeFragments(body);
+	            if (!this.writeFragments(body)) {
+	              return
+	            }
 
 	            if (this.#maxPayloadSize > 0 && this.#fragmentsBytes > this.#maxPayloadSize) {
-	              failWebsocketConnection(this.ws, new MessageSizeExceededError().message);
+	              failWebsocketConnectionWithCode(this.ws, 1009, new MessageSizeExceededError().message);
 	              return
 	            }
 
@@ -25634,14 +25755,17 @@ function requireReceiver () {
 	              this.#info.fin,
 	              (error, data) => {
 	                if (error) {
-	                  failWebsocketConnection(this.ws, error.message);
+	                  const code = error instanceof MessageSizeExceededError ? 1009 : 1007;
+	                  failWebsocketConnectionWithCode(this.ws, code, error.message);
 	                  return
 	                }
 
-	                this.writeFragments(data);
+	                if (!this.writeFragments(data)) {
+	                  return
+	                }
 
 	                if (this.#maxPayloadSize > 0 && this.#fragmentsBytes > this.#maxPayloadSize) {
-	                  failWebsocketConnection(this.ws, new MessageSizeExceededError().message);
+	                  failWebsocketConnectionWithCode(this.ws, 1009, new MessageSizeExceededError().message);
 	                  return
 	                }
 
@@ -25711,8 +25835,17 @@ function requireReceiver () {
 	  }
 
 	  writeFragments (fragment) {
+	    if (
+	      this.#maxFragments > 0 &&
+	      this.#fragments.length === this.#maxFragments
+	    ) {
+	      failWebsocketConnectionWithCode(this.ws, 1008, 'Too many message fragments');
+	      return false
+	    }
+
 	    this.#fragmentsBytes += fragment.length;
 	    this.#fragments.push(fragment);
+	    return true
 	  }
 
 	  consumeFragments () {
@@ -26415,9 +26548,12 @@ function requireWebsocket () {
 	    // once this happens, the connection is open
 	    this[kResponse] = response;
 
-	    const maxPayloadSize = this[kController]?.dispatcher?.webSocketOptions?.maxPayloadSize;
+	    const webSocketOptions = this[kController]?.dispatcher?.webSocketOptions;
+	    const maxFragments = webSocketOptions?.maxFragments;
+	    const maxPayloadSize = webSocketOptions?.maxPayloadSize;
 
 	    const parser = new ByteParser(this, parsedExtensions, {
+	      maxFragments,
 	      maxPayloadSize
 	    });
 	    parser.on('drain', onParserDrain);
@@ -140000,12 +140136,12 @@ function requireObject_getPrototypeOf () {
 	return Object_getPrototypeOf;
 }
 
-var implementation$3;
-var hasRequiredImplementation$1;
+var implementation$4;
+var hasRequiredImplementation$2;
 
-function requireImplementation$1 () {
-	if (hasRequiredImplementation$1) return implementation$3;
-	hasRequiredImplementation$1 = 1;
+function requireImplementation$2 () {
+	if (hasRequiredImplementation$2) return implementation$4;
+	hasRequiredImplementation$2 = 1;
 
 	/* eslint no-invalid-this: 1 */
 
@@ -140046,7 +140182,7 @@ function requireImplementation$1 () {
 	    return str;
 	};
 
-	implementation$3 = function bind(that) {
+	implementation$4 = function bind(that) {
 	    var target = this;
 	    if (typeof target !== 'function' || toStr.apply(target) !== funcType) {
 	        throw new TypeError(ERROR_MESSAGE + target);
@@ -140089,20 +140225,20 @@ function requireImplementation$1 () {
 
 	    return bound;
 	};
-	return implementation$3;
+	return implementation$4;
 }
 
-var functionBind$2;
-var hasRequiredFunctionBind$1;
+var functionBind$3;
+var hasRequiredFunctionBind$2;
 
-function requireFunctionBind$1 () {
-	if (hasRequiredFunctionBind$1) return functionBind$2;
-	hasRequiredFunctionBind$1 = 1;
+function requireFunctionBind$2 () {
+	if (hasRequiredFunctionBind$2) return functionBind$3;
+	hasRequiredFunctionBind$2 = 1;
 
-	var implementation = requireImplementation$1();
+	var implementation = requireImplementation$2();
 
-	functionBind$2 = Function.prototype.bind || implementation;
-	return functionBind$2;
+	functionBind$3 = Function.prototype.bind || implementation;
+	return functionBind$3;
 }
 
 var functionCall;
@@ -140148,7 +140284,7 @@ function requireActualApply () {
 	if (hasRequiredActualApply) return actualApply;
 	hasRequiredActualApply = 1;
 
-	var bind = requireFunctionBind$1();
+	var bind = requireFunctionBind$2();
 
 	var $apply = requireFunctionApply();
 	var $call = requireFunctionCall();
@@ -140166,7 +140302,7 @@ function requireCallBindApplyHelpers () {
 	if (hasRequiredCallBindApplyHelpers) return callBindApplyHelpers;
 	hasRequiredCallBindApplyHelpers = 1;
 
-	var bind = requireFunctionBind$1();
+	var bind = requireFunctionBind$2();
 	var $TypeError = requireType();
 
 	var $call = requireFunctionCall();
@@ -140290,6 +140426,111 @@ function requireGetProto () {
 	return getProto$1;
 }
 
+var implementation$3;
+var hasRequiredImplementation$1;
+
+function requireImplementation$1 () {
+	if (hasRequiredImplementation$1) return implementation$3;
+	hasRequiredImplementation$1 = 1;
+
+	/* eslint no-invalid-this: 1 */
+
+	var ERROR_MESSAGE = 'Function.prototype.bind called on incompatible ';
+	var toStr = Object.prototype.toString;
+	var max = Math.max;
+	var funcType = '[object Function]';
+
+	var concatty = function concatty(a, b) {
+	    var arr = [];
+
+	    for (var i = 0; i < a.length; i += 1) {
+	        arr[i] = a[i];
+	    }
+	    for (var j = 0; j < b.length; j += 1) {
+	        arr[j + a.length] = b[j];
+	    }
+
+	    return arr;
+	};
+
+	var slicy = function slicy(arrLike, offset) {
+	    var arr = [];
+	    for (var i = offset || 0, j = 0; i < arrLike.length; i += 1, j += 1) {
+	        arr[j] = arrLike[i];
+	    }
+	    return arr;
+	};
+
+	var joiny = function (arr, joiner) {
+	    var str = '';
+	    for (var i = 0; i < arr.length; i += 1) {
+	        str += arr[i];
+	        if (i + 1 < arr.length) {
+	            str += joiner;
+	        }
+	    }
+	    return str;
+	};
+
+	implementation$3 = function bind(that) {
+	    var target = this;
+	    if (typeof target !== 'function' || toStr.apply(target) !== funcType) {
+	        throw new TypeError(ERROR_MESSAGE + target);
+	    }
+	    var args = slicy(arguments, 1);
+
+	    var bound;
+	    var binder = function () {
+	        if (this instanceof bound) {
+	            var result = target.apply(
+	                this,
+	                concatty(args, arguments)
+	            );
+	            if (Object(result) === result) {
+	                return result;
+	            }
+	            return this;
+	        }
+	        return target.apply(
+	            that,
+	            concatty(args, arguments)
+	        );
+
+	    };
+
+	    var boundLength = max(0, target.length - args.length);
+	    var boundArgs = [];
+	    for (var i = 0; i < boundLength; i++) {
+	        boundArgs[i] = '$' + i;
+	    }
+
+	    bound = Function('binder', 'return function (' + joiny(boundArgs, ',') + '){ return binder.apply(this,arguments); }')(binder);
+
+	    if (target.prototype) {
+	        var Empty = function Empty() {};
+	        Empty.prototype = target.prototype;
+	        bound.prototype = new Empty();
+	        Empty.prototype = null;
+	    }
+
+	    return bound;
+	};
+	return implementation$3;
+}
+
+var functionBind$2;
+var hasRequiredFunctionBind$1;
+
+function requireFunctionBind$1 () {
+	if (hasRequiredFunctionBind$1) return functionBind$2;
+	hasRequiredFunctionBind$1 = 1;
+
+	var implementation = requireImplementation$1();
+
+	functionBind$2 = Function.prototype.bind || implementation;
+	return functionBind$2;
+}
+
 var implementation$2;
 var hasRequiredImplementation;
 
@@ -140395,99 +140636,21 @@ function requireFunctionBind () {
 	return functionBind$1;
 }
 
-/* eslint no-invalid-this: 1 */
+var hasown$1;
+var hasRequiredHasown;
 
-var ERROR_MESSAGE = 'Function.prototype.bind called on incompatible ';
-var toStr = Object.prototype.toString;
-var max$1 = Math.max;
-var funcType = '[object Function]';
+function requireHasown () {
+	if (hasRequiredHasown) return hasown$1;
+	hasRequiredHasown = 1;
 
-var concatty = function concatty(a, b) {
-    var arr = [];
+	var call = Function.prototype.call;
+	var $hasOwn = Object.prototype.hasOwnProperty;
+	var bind = requireFunctionBind();
 
-    for (var i = 0; i < a.length; i += 1) {
-        arr[i] = a[i];
-    }
-    for (var j = 0; j < b.length; j += 1) {
-        arr[j + a.length] = b[j];
-    }
-
-    return arr;
-};
-
-var slicy = function slicy(arrLike, offset) {
-    var arr = [];
-    for (var i = offset || 0, j = 0; i < arrLike.length; i += 1, j += 1) {
-        arr[j] = arrLike[i];
-    }
-    return arr;
-};
-
-var joiny = function (arr, joiner) {
-    var str = '';
-    for (var i = 0; i < arr.length; i += 1) {
-        str += arr[i];
-        if (i + 1 < arr.length) {
-            str += joiner;
-        }
-    }
-    return str;
-};
-
-var implementation$1 = function bind(that) {
-    var target = this;
-    if (typeof target !== 'function' || toStr.apply(target) !== funcType) {
-        throw new TypeError(ERROR_MESSAGE + target);
-    }
-    var args = slicy(arguments, 1);
-
-    var bound;
-    var binder = function () {
-        if (this instanceof bound) {
-            var result = target.apply(
-                this,
-                concatty(args, arguments)
-            );
-            if (Object(result) === result) {
-                return result;
-            }
-            return this;
-        }
-        return target.apply(
-            that,
-            concatty(args, arguments)
-        );
-
-    };
-
-    var boundLength = max$1(0, target.length - args.length);
-    var boundArgs = [];
-    for (var i = 0; i < boundLength; i++) {
-        boundArgs[i] = '$' + i;
-    }
-
-    bound = Function('binder', 'return function (' + joiny(boundArgs, ',') + '){ return binder.apply(this,arguments); }')(binder);
-
-    if (target.prototype) {
-        var Empty = function Empty() {};
-        Empty.prototype = target.prototype;
-        bound.prototype = new Empty();
-        Empty.prototype = null;
-    }
-
-    return bound;
-};
-
-var implementation = implementation$1;
-
-var functionBind = Function.prototype.bind || implementation;
-
-var call = Function.prototype.call;
-var $hasOwn = Object.prototype.hasOwnProperty;
-var bind$1 = functionBind;
-
-/** @type {import('.')} */
-var hasown = bind$1.call(call, $hasOwn);
+	/** @type {import('.')} */
+	hasown$1 = bind.call(call, $hasOwn);
+	return hasown$1;
+}
 
 var undefined$1;
 
@@ -140503,7 +140666,7 @@ var $URIError = uri;
 
 var abs = abs$1;
 var floor = floor$1;
-var max = max$2;
+var max$1 = max$2;
 var min = min$1;
 var pow = pow$1;
 var round = round$1;
@@ -140631,7 +140794,7 @@ var INTRINSICS = {
 	'%Object.getPrototypeOf%': $ObjectGPO,
 	'%Math.abs%': abs,
 	'%Math.floor%': floor,
-	'%Math.max%': max,
+	'%Math.max%': max$1,
 	'%Math.min%': min,
 	'%Math.pow%': pow,
 	'%Math.round%': round,
@@ -140729,13 +140892,13 @@ var LEGACY_ALIASES = {
 	'%WeakSetPrototype%': ['WeakSet', 'prototype']
 };
 
-var bind = requireFunctionBind();
-var hasOwn$2 = hasown;
-var $concat = bind.call($call, Array.prototype.concat);
-var $spliceApply = bind.call($apply, Array.prototype.splice);
-var $replace = bind.call($call, String.prototype.replace);
-var $strSlice = bind.call($call, String.prototype.slice);
-var $exec = bind.call($call, RegExp.prototype.exec);
+var bind$1 = requireFunctionBind$1();
+var hasOwn$2 = requireHasown();
+var $concat = bind$1.call($call, Array.prototype.concat);
+var $spliceApply = bind$1.call($apply, Array.prototype.splice);
+var $replace = bind$1.call($call, String.prototype.replace);
+var $strSlice = bind$1.call($call, String.prototype.slice);
+var $exec = bind$1.call($call, RegExp.prototype.exec);
 
 /* adapted from https://github.com/lodash/lodash/blob/4.17.15/dist/lodash.js#L6735-L6744 */
 var rePropName = /[^%.[\]]+|\[(?:(-?\d+(?:\.\d+)?)|(["'])((?:(?!\2)[^\\]|\\.)*?)\2)\]|(?=(?:\.|\[\])(?:\.|\[\]|%$))/g;
@@ -140937,7 +141100,7 @@ var GetIntrinsic = getIntrinsic;
 var $defineProperty = GetIntrinsic('%Object.defineProperty%', true);
 
 var hasToStringTag = requireShams()();
-var hasOwn$1 = hasown;
+var hasOwn$1 = requireHasown();
 var $TypeError = requireType();
 
 var toStringTag = hasToStringTag ? Symbol.toStringTag : null;
@@ -140966,6 +141129,100 @@ var esSetTostringtag = function setToStringTag(object, value) {
 	}
 };
 
+/* eslint no-invalid-this: 1 */
+
+var ERROR_MESSAGE = 'Function.prototype.bind called on incompatible ';
+var toStr = Object.prototype.toString;
+var max = Math.max;
+var funcType = '[object Function]';
+
+var concatty = function concatty(a, b) {
+    var arr = [];
+
+    for (var i = 0; i < a.length; i += 1) {
+        arr[i] = a[i];
+    }
+    for (var j = 0; j < b.length; j += 1) {
+        arr[j + a.length] = b[j];
+    }
+
+    return arr;
+};
+
+var slicy = function slicy(arrLike, offset) {
+    var arr = [];
+    for (var i = offset || 0, j = 0; i < arrLike.length; i += 1, j += 1) {
+        arr[j] = arrLike[i];
+    }
+    return arr;
+};
+
+var joiny = function (arr, joiner) {
+    var str = '';
+    for (var i = 0; i < arr.length; i += 1) {
+        str += arr[i];
+        if (i + 1 < arr.length) {
+            str += joiner;
+        }
+    }
+    return str;
+};
+
+var implementation$1 = function bind(that) {
+    var target = this;
+    if (typeof target !== 'function' || toStr.apply(target) !== funcType) {
+        throw new TypeError(ERROR_MESSAGE + target);
+    }
+    var args = slicy(arguments, 1);
+
+    var bound;
+    var binder = function () {
+        if (this instanceof bound) {
+            var result = target.apply(
+                this,
+                concatty(args, arguments)
+            );
+            if (Object(result) === result) {
+                return result;
+            }
+            return this;
+        }
+        return target.apply(
+            that,
+            concatty(args, arguments)
+        );
+
+    };
+
+    var boundLength = max(0, target.length - args.length);
+    var boundArgs = [];
+    for (var i = 0; i < boundLength; i++) {
+        boundArgs[i] = '$' + i;
+    }
+
+    bound = Function('binder', 'return function (' + joiny(boundArgs, ',') + '){ return binder.apply(this,arguments); }')(binder);
+
+    if (target.prototype) {
+        var Empty = function Empty() {};
+        Empty.prototype = target.prototype;
+        bound.prototype = new Empty();
+        Empty.prototype = null;
+    }
+
+    return bound;
+};
+
+var implementation = implementation$1;
+
+var functionBind = Function.prototype.bind || implementation;
+
+var call = Function.prototype.call;
+var $hasOwn = Object.prototype.hasOwnProperty;
+var bind = functionBind;
+
+/** @type {import('.')} */
+var hasown = bind.call(call, $hasOwn);
+
 // populates missing values
 var populate$1 = function (dst, src) {
   Object.keys(src).forEach(function (prop) {
@@ -140989,6 +141246,18 @@ var asynckit = asynckit$1;
 var setToStringTag = esSetTostringtag;
 var hasOwn = hasown;
 var populate = populate$1;
+
+/**
+ * Escape CR, LF, and `"` in a multipart `name`/`filename` parameter, so a field
+ * name or filename can not break out of its header line to inject headers or
+ * smuggle additional parts. Matches the WHATWG HTML multipart/form-data encoding.
+ *
+ * @param {string} str - the parameter value to escape
+ * @returns {string} the escaped value
+ */
+function escapeHeaderParam(str) {
+  return String(str).replace(/\r/g, '%0D').replace(/\n/g, '%0A').replace(/"/g, '%22');
+}
 
 /**
  * Create readable "multipart/form-data" streams.
@@ -141155,7 +141424,7 @@ FormData$1.prototype._multiPartHeader = function (field, value, options) {
   var contents = '';
   var headers = {
     // add custom disposition as third element or keep it two elements if not
-    'Content-Disposition': ['form-data', 'name="' + field + '"'].concat(contentDisposition || []),
+    'Content-Disposition': ['form-data', 'name="' + escapeHeaderParam(field) + '"'].concat(contentDisposition || []),
     // if no content type. allow it to be empty array
     'Content-Type': [].concat(contentType || [])
   };
@@ -141209,7 +141478,7 @@ FormData$1.prototype._getContentDisposition = function (value, options) { // esl
   }
 
   if (filename) {
-    return 'filename="' + filename + '"';
+    return 'filename="' + escapeHeaderParam(filename) + '"';
   }
 };
 
