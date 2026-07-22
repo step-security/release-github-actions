@@ -53,7 +53,7 @@
     "@typescript-eslint/eslint-plugin": "^5.51.0",
     "@typescript-eslint/parser": "^5.51.0",
     "@vitest/coverage-v8": "^3.2.4",
-    "axios": "1.15.0",
+    "axios": "1.18.0",
     "eslint": "^8.34.0",
     "eslint-plugin-import": "^2.27.5",
     "husky": "^8.0.3",
