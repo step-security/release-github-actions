@@ -91374,7 +91374,7 @@ let ResponseStatusCodeError$1 = class ResponseStatusCodeError extends UndiciErro
 };
 
 const kInvalidArgumentError = Symbol.for('undici.error.UND_ERR_INVALID_ARG');
-let InvalidArgumentError$o = class InvalidArgumentError extends UndiciError$2 {
+let InvalidArgumentError$p = class InvalidArgumentError extends UndiciError$2 {
   constructor (message) {
     super(message);
     this.name = 'InvalidArgumentError';
@@ -91681,7 +91681,7 @@ var errors$1 = {
   RequestContentLengthMismatchError: RequestContentLengthMismatchError$2,
   ConnectTimeoutError: ConnectTimeoutError$1,
   ResponseStatusCodeError: ResponseStatusCodeError$1,
-  InvalidArgumentError: InvalidArgumentError$o,
+  InvalidArgumentError: InvalidArgumentError$p,
   InvalidReturnValueError: InvalidReturnValueError$2,
   RequestAbortedError: RequestAbortedError$8,
   ClientDestroyedError: ClientDestroyedError$2,
@@ -91975,7 +91975,7 @@ const { Blob: Blob$1 } = require$$0$6;
 const nodeUtil = require$$0$7;
 const { stringify } = require$$7;
 const { EventEmitter: EE$1 } = require$$8;
-const { InvalidArgumentError: InvalidArgumentError$n } = errors$1;
+const { InvalidArgumentError: InvalidArgumentError$o } = errors$1;
 const { headerNameLowerCasedRecord: headerNameLowerCasedRecord$1 } = constants$5;
 const { tree } = tree_1;
 
@@ -92102,39 +92102,39 @@ function parseURL (url) {
     url = new URL(url);
 
     if (!isHttpOrHttpsPrefixed(url.origin || url.protocol)) {
-      throw new InvalidArgumentError$n('Invalid URL protocol: the URL must start with `http:` or `https:`.')
+      throw new InvalidArgumentError$o('Invalid URL protocol: the URL must start with `http:` or `https:`.')
     }
 
     return url
   }
 
   if (!url || typeof url !== 'object') {
-    throw new InvalidArgumentError$n('Invalid URL: The URL argument must be a non-null object.')
+    throw new InvalidArgumentError$o('Invalid URL: The URL argument must be a non-null object.')
   }
 
   if (!(url instanceof URL)) {
     if (url.port != null && url.port !== '' && isValidPort(url.port) === false) {
-      throw new InvalidArgumentError$n('Invalid URL: port must be a valid integer or a string representation of an integer.')
+      throw new InvalidArgumentError$o('Invalid URL: port must be a valid integer or a string representation of an integer.')
     }
 
     if (url.path != null && typeof url.path !== 'string') {
-      throw new InvalidArgumentError$n('Invalid URL path: the path must be a string or null/undefined.')
+      throw new InvalidArgumentError$o('Invalid URL path: the path must be a string or null/undefined.')
     }
 
     if (url.pathname != null && typeof url.pathname !== 'string') {
-      throw new InvalidArgumentError$n('Invalid URL pathname: the pathname must be a string or null/undefined.')
+      throw new InvalidArgumentError$o('Invalid URL pathname: the pathname must be a string or null/undefined.')
     }
 
     if (url.hostname != null && typeof url.hostname !== 'string') {
-      throw new InvalidArgumentError$n('Invalid URL hostname: the hostname must be a string or null/undefined.')
+      throw new InvalidArgumentError$o('Invalid URL hostname: the hostname must be a string or null/undefined.')
     }
 
     if (url.origin != null && typeof url.origin !== 'string') {
-      throw new InvalidArgumentError$n('Invalid URL origin: the origin must be a string or null/undefined.')
+      throw new InvalidArgumentError$o('Invalid URL origin: the origin must be a string or null/undefined.')
     }
 
     if (!isHttpOrHttpsPrefixed(url.origin || url.protocol)) {
-      throw new InvalidArgumentError$n('Invalid URL protocol: the URL must start with `http:` or `https:`.')
+      throw new InvalidArgumentError$o('Invalid URL protocol: the URL must start with `http:` or `https:`.')
     }
 
     const port = url.port != null
@@ -92162,7 +92162,7 @@ function parseURL (url) {
   }
 
   if (!isHttpOrHttpsPrefixed(url.origin || url.protocol)) {
-    throw new InvalidArgumentError$n('Invalid URL protocol: the URL must start with `http:` or `https:`.')
+    throw new InvalidArgumentError$o('Invalid URL protocol: the URL must start with `http:` or `https:`.')
   }
 
   return url
@@ -92172,7 +92172,7 @@ function parseOrigin$1 (url) {
   url = parseURL(url);
 
   if (url.pathname !== '/' || url.search || url.hash) {
-    throw new InvalidArgumentError$n('invalid url')
+    throw new InvalidArgumentError$o('invalid url')
   }
 
   return url
@@ -92368,36 +92368,36 @@ function isBuffer$1 (buffer) {
 
 function validateHandler$1 (handler, method, upgrade) {
   if (!handler || typeof handler !== 'object') {
-    throw new InvalidArgumentError$n('handler must be an object')
+    throw new InvalidArgumentError$o('handler must be an object')
   }
 
   if (typeof handler.onConnect !== 'function') {
-    throw new InvalidArgumentError$n('invalid onConnect method')
+    throw new InvalidArgumentError$o('invalid onConnect method')
   }
 
   if (typeof handler.onError !== 'function') {
-    throw new InvalidArgumentError$n('invalid onError method')
+    throw new InvalidArgumentError$o('invalid onError method')
   }
 
   if (typeof handler.onBodySent !== 'function' && handler.onBodySent !== undefined) {
-    throw new InvalidArgumentError$n('invalid onBodySent method')
+    throw new InvalidArgumentError$o('invalid onBodySent method')
   }
 
   if (upgrade || method === 'CONNECT') {
     if (typeof handler.onUpgrade !== 'function') {
-      throw new InvalidArgumentError$n('invalid onUpgrade method')
+      throw new InvalidArgumentError$o('invalid onUpgrade method')
     }
   } else {
     if (typeof handler.onHeaders !== 'function') {
-      throw new InvalidArgumentError$n('invalid onHeaders method')
+      throw new InvalidArgumentError$o('invalid onHeaders method')
     }
 
     if (typeof handler.onData !== 'function') {
-      throw new InvalidArgumentError$n('invalid onData method')
+      throw new InvalidArgumentError$o('invalid onData method')
     }
 
     if (typeof handler.onComplete !== 'function') {
-      throw new InvalidArgumentError$n('invalid onComplete method')
+      throw new InvalidArgumentError$o('invalid onComplete method')
     }
   }
 }
@@ -92887,7 +92887,7 @@ var diagnostics = {
 };
 
 const {
-  InvalidArgumentError: InvalidArgumentError$m,
+  InvalidArgumentError: InvalidArgumentError$n,
   NotSupportedError: NotSupportedError$1
 } = errors$1;
 const assert$d = require$$0$3;
@@ -92931,45 +92931,45 @@ let Request$1 = class Request {
     servername
   }, handler) {
     if (typeof path !== 'string') {
-      throw new InvalidArgumentError$m('path must be a string')
+      throw new InvalidArgumentError$n('path must be a string')
     } else if (
       path[0] !== '/' &&
       !(path.startsWith('http://') || path.startsWith('https://')) &&
       method !== 'CONNECT'
     ) {
-      throw new InvalidArgumentError$m('path must be an absolute URL or start with a slash')
+      throw new InvalidArgumentError$n('path must be an absolute URL or start with a slash')
     } else if (invalidPathRegex.test(path)) {
-      throw new InvalidArgumentError$m('invalid request path')
+      throw new InvalidArgumentError$n('invalid request path')
     }
 
     if (typeof method !== 'string') {
-      throw new InvalidArgumentError$m('method must be a string')
+      throw new InvalidArgumentError$n('method must be a string')
     } else if (normalizedMethodRecords[method] === undefined && !isValidHTTPToken(method)) {
-      throw new InvalidArgumentError$m('invalid request method')
+      throw new InvalidArgumentError$n('invalid request method')
     }
 
     if (upgrade && typeof upgrade !== 'string') {
-      throw new InvalidArgumentError$m('upgrade must be a string')
+      throw new InvalidArgumentError$n('upgrade must be a string')
     }
 
     if (upgrade && !isValidHeaderValue(upgrade)) {
-      throw new InvalidArgumentError$m('invalid upgrade header')
+      throw new InvalidArgumentError$n('invalid upgrade header')
     }
 
     if (headersTimeout != null && (!Number.isFinite(headersTimeout) || headersTimeout < 0)) {
-      throw new InvalidArgumentError$m('invalid headersTimeout')
+      throw new InvalidArgumentError$n('invalid headersTimeout')
     }
 
     if (bodyTimeout != null && (!Number.isFinite(bodyTimeout) || bodyTimeout < 0)) {
-      throw new InvalidArgumentError$m('invalid bodyTimeout')
+      throw new InvalidArgumentError$n('invalid bodyTimeout')
     }
 
     if (reset != null && typeof reset !== 'boolean') {
-      throw new InvalidArgumentError$m('invalid reset')
+      throw new InvalidArgumentError$n('invalid reset')
     }
 
     if (expectContinue != null && typeof expectContinue !== 'boolean') {
-      throw new InvalidArgumentError$m('invalid expectContinue')
+      throw new InvalidArgumentError$n('invalid expectContinue')
     }
 
     this.headersTimeout = headersTimeout;
@@ -93014,7 +93014,7 @@ let Request$1 = class Request {
     } else if (isFormDataLike(body) || isIterable(body) || isBlobLike(body)) {
       this.body = body;
     } else {
-      throw new InvalidArgumentError$m('body must be a string, a Buffer, a Readable stream, an iterable, or an async iterable')
+      throw new InvalidArgumentError$n('body must be a string, a Buffer, a Readable stream, an iterable, or an async iterable')
     }
 
     this.completed = false;
@@ -93048,7 +93048,7 @@ let Request$1 = class Request {
 
     if (Array.isArray(headers)) {
       if (headers.length % 2 !== 0) {
-        throw new InvalidArgumentError$m('headers array must be even')
+        throw new InvalidArgumentError$n('headers array must be even')
       }
       for (let i = 0; i < headers.length; i += 2) {
         processHeader(this, headers[i], headers[i + 1]);
@@ -93057,7 +93057,7 @@ let Request$1 = class Request {
       if (headers[Symbol.iterator]) {
         for (const header of headers) {
           if (!Array.isArray(header) || header.length !== 2) {
-            throw new InvalidArgumentError$m('headers must be in key-value pair format')
+            throw new InvalidArgumentError$n('headers must be in key-value pair format')
           }
           processHeader(this, header[0], header[1]);
         }
@@ -93068,7 +93068,7 @@ let Request$1 = class Request {
         }
       }
     } else if (headers != null) {
-      throw new InvalidArgumentError$m('headers must be an object or an array')
+      throw new InvalidArgumentError$n('headers must be an object or an array')
     }
 
     validateHandler(handler, method, upgrade);
@@ -93209,7 +93209,7 @@ let Request$1 = class Request {
 
 function processHeader (request, key, val) {
   if (val && (typeof val === 'object' && !Array.isArray(val))) {
-    throw new InvalidArgumentError$m(`invalid ${key} header`)
+    throw new InvalidArgumentError$n(`invalid ${key} header`)
   } else if (val === undefined) {
     return
   }
@@ -93219,7 +93219,7 @@ function processHeader (request, key, val) {
   if (headerName === undefined) {
     headerName = key.toLowerCase();
     if (headerNameLowerCasedRecord[headerName] === undefined && !isValidHTTPToken(headerName)) {
-      throw new InvalidArgumentError$m('invalid header key')
+      throw new InvalidArgumentError$n('invalid header key')
     }
   }
 
@@ -93228,54 +93228,65 @@ function processHeader (request, key, val) {
     for (let i = 0; i < val.length; i++) {
       if (typeof val[i] === 'string') {
         if (!isValidHeaderValue(val[i])) {
-          throw new InvalidArgumentError$m(`invalid ${key} header`)
+          throw new InvalidArgumentError$n(`invalid ${key} header`)
         }
         arr.push(val[i]);
       } else if (val[i] === null) {
         arr.push('');
       } else if (typeof val[i] === 'object') {
-        throw new InvalidArgumentError$m(`invalid ${key} header`)
+        throw new InvalidArgumentError$n(`invalid ${key} header`)
       } else {
-        arr.push(`${val[i]}`);
+        // Coerce primitives (and reject unsafe coercions such as functions
+        // with a crafted toString/Symbol.toPrimitive).
+        const str = `${val[i]}`;
+        if (!isValidHeaderValue(str)) {
+          throw new InvalidArgumentError$n(`invalid ${key} header`)
+        }
+        arr.push(str);
       }
     }
     val = arr;
   } else if (typeof val === 'string') {
     if (!isValidHeaderValue(val)) {
-      throw new InvalidArgumentError$m(`invalid ${key} header`)
+      throw new InvalidArgumentError$n(`invalid ${key} header`)
     }
   } else if (val === null) {
     val = '';
   } else {
+    // Coerce primitives (and reject unsafe coercions such as functions
+    // with a crafted toString/Symbol.toPrimitive).
     val = `${val}`;
+    if (!isValidHeaderValue(val)) {
+      throw new InvalidArgumentError$n(`invalid ${key} header`)
+    }
   }
 
   if (headerName === 'host') {
     if (request.host !== null) {
-      throw new InvalidArgumentError$m('duplicate host header')
+      throw new InvalidArgumentError$n('duplicate host header')
     }
     if (typeof val !== 'string') {
-      throw new InvalidArgumentError$m('invalid host header')
+      throw new InvalidArgumentError$n('invalid host header')
     }
     // Consumed by Client
     request.host = val;
   } else if (headerName === 'content-length') {
     if (request.contentLength !== null) {
-      throw new InvalidArgumentError$m('duplicate content-length header')
+      throw new InvalidArgumentError$n('duplicate content-length header')
     }
     request.contentLength = parseInt(val, 10);
     if (!Number.isFinite(request.contentLength)) {
-      throw new InvalidArgumentError$m('invalid content-length header')
+      throw new InvalidArgumentError$n('invalid content-length header')
     }
   } else if (request.contentType === null && headerName === 'content-type') {
     request.contentType = val;
     request.headers.push(key, val);
   } else if (headerName === 'transfer-encoding' || headerName === 'keep-alive' || headerName === 'upgrade') {
-    throw new InvalidArgumentError$m(`invalid ${headerName} header`)
+    throw new InvalidArgumentError$n(`invalid ${headerName} header`)
   } else if (headerName === 'connection') {
     const value = typeof val === 'string' ? val.toLowerCase() : null;
     if (value !== 'close' && value !== 'keep-alive') {
-      throw new InvalidArgumentError$m('invalid connection header')
+      throw new InvalidArgumentError$n('invalid connection header')
     }
 
     if (value === 'close') {
@@ -93359,7 +93370,7 @@ const Dispatcher$3 = dispatcher;
 const {
   ClientDestroyedError: ClientDestroyedError$1,
   ClientClosedError,
-  InvalidArgumentError: InvalidArgumentError$l
+  InvalidArgumentError: InvalidArgumentError$m
 } = errors$1;
 const { kDestroy: kDestroy$5, kClose: kClose$7, kClosed: kClosed$1, kDestroyed: kDestroyed$1, kDispatch: kDispatch$5, kInterceptors: kInterceptors$5 } = symbols$4;
 
@@ -93403,7 +93414,7 @@ let DispatcherBase$5 = class DispatcherBase extends Dispatcher$3 {
       for (let i = newInterceptors.length - 1; i >= 0; i--) {
         const interceptor = this[kInterceptors$5][i];
         if (typeof interceptor !== 'function') {
-          throw new InvalidArgumentError$l('interceptor must be an function')
+          throw new InvalidArgumentError$m('interceptor must be an function')
         }
       }
     }
@@ -93421,7 +93432,7 @@ let DispatcherBase$5 = class DispatcherBase extends Dispatcher$3 {
     }
 
     if (typeof callback !== 'function') {
-      throw new InvalidArgumentError$l('invalid callback')
+      throw new InvalidArgumentError$m('invalid callback')
     }
 
     if (this[kDestroyed$1]) {
@@ -93472,7 +93483,7 @@ let DispatcherBase$5 = class DispatcherBase extends Dispatcher$3 {
     }
 
     if (typeof callback !== 'function') {
-      throw new InvalidArgumentError$l('invalid callback')
+      throw new InvalidArgumentError$m('invalid callback')
     }
 
     if (this[kDestroyed$1]) {
@@ -93522,12 +93533,12 @@ let DispatcherBase$5 = class DispatcherBase extends Dispatcher$3 {
 
   dispatch (opts, handler) {
     if (!handler || typeof handler !== 'object') {
-      throw new InvalidArgumentError$l('handler must be an object')
+      throw new InvalidArgumentError$m('handler must be an object')
     }
 
     try {
       if (!opts || typeof opts !== 'object') {
-        throw new InvalidArgumentError$l('opts must be an object.')
+        throw new InvalidArgumentError$m('opts must be an object.')
       }
 
       if (this[kDestroyed$1] || this[kOnDestroyed]) {
@@ -93541,7 +93552,7 @@ let DispatcherBase$5 = class DispatcherBase extends Dispatcher$3 {
       return this[kInterceptedDispatch](opts, handler)
     } catch (err) {
       if (typeof handler.onError !== 'function') {
-        throw new InvalidArgumentError$l('invalid onError method')
+        throw new InvalidArgumentError$m('invalid onError method')
       }
 
       handler.onError(err);
@@ -93978,7 +93989,7 @@ var timers$2 = {
 const net$1 = require$$0$5;
 const assert$c = require$$0$3;
 const util$l = util$n;
-const { InvalidArgumentError: InvalidArgumentError$k, ConnectTimeoutError } = errors$1;
+const { InvalidArgumentError: InvalidArgumentError$l, ConnectTimeoutError } = errors$1;
 const timers$1 = timers$2;
 
 function noop$3 () {}
@@ -94053,7 +94064,7 @@ if (commonjsGlobal.FinalizationRegistry && !(process.env.NODE_V8_COVERAGE || pro
 
 function buildConnector$4 ({ allowH2, maxCachedSessions, socketPath, timeout, session: customSession, ...opts }) {
   if (maxCachedSessions != null && (!Number.isInteger(maxCachedSessions) || maxCachedSessions < 0)) {
-    throw new InvalidArgumentError$k('maxCachedSessions must be a positive integer or zero')
+    throw new InvalidArgumentError$l('maxCachedSessions must be a positive integer or zero')
   }
 
   const options = { path: socketPath, ...opts };
@@ -99244,6 +99255,7 @@ const {
   RequestContentLengthMismatchError: RequestContentLengthMismatchError$1,
   ResponseContentLengthMismatchError,
   RequestAbortedError: RequestAbortedError$7,
+  InvalidArgumentError: InvalidArgumentError$k,
   HeadersTimeoutError,
   HeadersOverflowError,
   SocketError: SocketError$3,
@@ -100227,8 +100239,16 @@ function writeH1 (client, request) {
     }
     body = bodyStream.stream;
     contentLength = bodyStream.length;
-  } else if (util$j.isBlobLike(body) && request.contentType == null && body.type) {
-    headers.push('content-type', body.type);
+  } else if (util$j.isBlobLike(body) && request.contentType == null) {
+    const contentType = body.type;
+    if (contentType) {
+      const contentTypeValue = `${contentType}`;
+      if (!util$j.isValidHeaderValue(contentTypeValue)) {
+        util$j.errorRequest(client, request, new InvalidArgumentError$k('invalid content-type header'));
+        return false
+      }
+      headers.push('content-type', contentTypeValue);
+    }
   }
 
   if (body && typeof body.read === 'function') {
@@ -103548,6 +103568,28 @@ function calculateRetryAfterHeader (retryAfter) {
   return new Date(retryAfter).getTime() - current
 }
 
+function validatePartialResponseContentLength (headers, range, statusCode, retryCount) {
+  const contentLength = headers['content-length'];
+  if (contentLength == null) {
+    return null
+  }
+
+  if (!Number.isFinite(range.start) || !Number.isFinite(range.end)) {
+    return null
+  }
+
+  const length = Number(contentLength);
+  const expectedLength = range.end - range.start + 1;
+  if (!Number.isFinite(length) || length !== expectedLength) {
+    return new RequestRetryError('Content-Length mismatch', statusCode, {
+      headers,
+      data: { count: retryCount }
+    })
+  }
+
+  return null
+}
+
 let RetryHandler$3 = class RetryHandler {
   constructor (opts, handlers) {
     const { retryOptions, ...dispatchOpts } = opts;
@@ -103762,6 +103804,12 @@ let RetryHandler$3 = class RetryHandler {
         return false
       }
 
+      const contentLengthError = validatePartialResponseContentLength(headers, contentRange, statusCode, this.retryCount);
+      if (contentLengthError != null) {
+        this.abort(contentLengthError);
+        return false
+      }
+
       const { start, size, end = size - 1 } = contentRange;
 
       assert$7(this.start === start, 'content-range mismatch');
@@ -103783,6 +103831,12 @@ let RetryHandler$3 = class RetryHandler {
             resume,
             statusMessage
           )
+        }
+
+        const contentLengthError = validatePartialResponseContentLength(headers, range, statusCode, this.retryCount);
+        if (contentLengthError != null) {
+          this.abort(contentLengthError);
+          return false
         }
 
         const { start, size, end = size - 1 } = range;
@@ -113958,7 +114012,7 @@ function requireUtil$2 () {
 
 	    if (
 	      code < 0x20 || // exclude CTLs (0-31)
-	      code === 0x7F || // DEL
+	      code > 0x7E || // exclude DEL and non-ascii
 	      code === 0x3B // ;
 	    ) {
 	      throw new Error('Invalid cookie path')
@@ -113967,16 +114021,80 @@ function requireUtil$2 () {
 	}
 
 	/**
-	 * I have no idea why these values aren't allowed to be honest,
-	 * but Deno tests these. - Khafra
+	 * <let-dig> ::= <letter> | <digit>
+	 *
+	 * <letter> ::= any one of the 52 alphabetic characters A through Z in
+	 * upper case and a through z in lower case
+	 *
+	 * <digit> ::= any one of the ten digits 0 through 9r
+	 *
+	 * @see https://www.rfc-editor.org/rfc/rfc1034#section-3.5
+	 * @param {number} code
+	 */
+	function isLetterOrDigit (code) {
+	  return (
+	    (code >= 0x30 && code <= 0x39) || // 0-9
+	    (code >= 0x41 && code <= 0x5A) || // A-Z
+	    (code >= 0x61 && code <= 0x7A) // a-z
+	  )
+	}
+
+	/**
+	 * Validates a cookie domain against the "preferred name syntax".
+	 *
+	 * <domain>      ::= <subdomain> | " "
+	 * <subdomain>   ::= <label> | <subdomain> "." <label>
+	 * <label>       ::= <let-dig> [ [ <ldh-str> ] <let-dig> ]
+	 * <ldh-str>     ::= <let-dig-hyp> | <let-dig-hyp> <ldh-str>
+	 * <let-dig-hyp> ::= <let-dig> | "-"
+	 *
+	 * @see https://www.rfc-editor.org/rfc/rfc1034#section-3.5
+	 * @see https://www.rfc-editor.org/rfc/rfc1123#section-2.1
+	 * @see https://www.rfc-editor.org/rfc/rfc1035#section-2.3.4
 	 * @param {string} domain
 	 */
 	function validateCookieDomain (domain) {
-	  if (
-	    domain.startsWith('-') ||
-	    domain.endsWith('.') ||
-	    domain.endsWith('-')
-	  ) {
+	  // <domain> ::= <subdomain> | " "
+	  if (domain === ' ') {
+	    return
+	  }
+
+	  if (domain.length > 255) {
+	    throw new Error('Invalid cookie domain')
+	  }
+
+	  let labelLength = 0;
+
+	  for (let i = 0; i < domain.length; ++i) {
+	    const code = domain.charCodeAt(i);
+
+	    if (code === 0x2E) {
+	      if (labelLength === 0) {
+	        throw new Error('Invalid cookie domain')
+	      }
+
+	      if (domain.charCodeAt(i - 1) === 0x2D) { // "-"
+	        throw new Error('Invalid cookie domain')
+	      }
+
+	      labelLength = 0;
+	      continue
+	    }
+
+	    if (labelLength === 0 && !isLetterOrDigit(code)) {
+	      throw new Error('Invalid cookie domain')
+	    }
+
+	    if (!isLetterOrDigit(code) && code !== 0x2D) { // "-"
+	      throw new Error('Invalid cookie domain')
+	    }
+
+	    if (++labelLength > 63) {
+	      throw new Error('Invalid cookie domain')
+	    }
+	  }
+
+	  if (labelLength === 0 || domain.charCodeAt(domain.length - 1) === 0x2D) { // "-"
 	    throw new Error('Invalid cookie domain')
 	  }
 	}
@@ -114119,7 +114237,13 @@ function requireUtil$2 () {
 
 	    const [key, ...value] = part.split('=');
 
-	    out.push(`${key.trim()}=${value.join('=')}`);
+	    const trimmedKey = key.trim();
+	    const joinedValue = value.join('=');
+
+	    validateCookieName(trimmedKey);
+	    validateCookieValue(joinedValue);
+
+	    out.push(`${trimmedKey}=${joinedValue}`);
 	  }
 
 	  return out.join('; ')
