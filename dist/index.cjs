@@ -95281,11 +95281,77 @@ let Request$1 = class Request {
     }
   }
 
-  onUpgrade (statusCode, headers, socket) {
+  /**
+   * @param {number|null} statusCode
+   * @param {Buffer[]|null} headers
+   * @param {import('node:stream').Duplex} socket
+   * @param {string} [statusText]
+   */
+  onUpgrade (statusCode, headers, socket, statusText = '') {
+    this.onFinally();
+
     assert$d(!this.aborted);
     assert$d(!this.completed);
 
-    return this[kHandler].onUpgrade(statusCode, headers, socket)
+    if (statusCode !== null) {
+      this.#publishUpgradeHeaders(statusCode, headers, statusText);
+    }
+
+    const result = this[kHandler].onUpgrade(statusCode, headers, socket);
+
+    if (!this.aborted) {
+      this.completed = true;
+      if (statusCode !== null) {
+        this.#publishUpgradeTrailers();
+      }
+    }
+
+    return result
+  }
+
+  /**
+   * @param {number} statusCode
+   * @param {import('node:http2').IncomingHttpHeaders} headers
+   * @param {(headers: import('node:http2').IncomingHttpHeaders) => Buffer[]} parseHeaders
+   * @param {string} [statusText]
+   */
+  onUpgradeResponse (statusCode, headers, parseHeaders, statusText = '') {
+    assert$d(!this.aborted);
+    assert$d(this.completed);
+
+    if (channels$2.headers.hasSubscribers) {
+      this.#publishUpgradeHeaders(statusCode, parseHeaders(headers), statusText);
+    }
+    this.#publishUpgradeTrailers();
+  }
+
+  /**
+   * @param {Error} error
+   */
+  onUpgradeError (error) {
+    assert$d(!this.aborted);
+    assert$d(this.completed);
+
+    if (channels$2.error.hasSubscribers) {
+      channels$2.error.publish({ request: this, error });
+    }
+  }
+
+  /**
+   * @param {number} statusCode
+   * @param {Buffer[]} headers
+   * @param {string} statusText
+   */
+  #publishUpgradeHeaders (statusCode, headers, statusText) {
+    if (channels$2.headers.hasSubscribers) {
+      channels$2.headers.publish({ request: this, response: { statusCode, headers, statusText } });
+    }
+  }
+
+  #publishUpgradeTrailers () {
+    if (channels$2.trailers.hasSubscribers) {
+      channels$2.trailers.publish({ request: this, trailers: [] });
+    }
   }
 
   onComplete (trailers) {
@@ -95498,6 +95564,7 @@ class ComposedDispatcher extends Dispatcher$4 {
 
 var dispatcher = Dispatcher$4;
 
+const buffer = require$$0$8;
 const Dispatcher$3 = dispatcher;
 const {
   ClientDestroyedError: ClientDestroyedError$1,
@@ -95510,6 +95577,7 @@ const kOnDestroyed = Symbol('onDestroyed');
 const kOnClosed = Symbol('onClosed');
 const kInterceptedDispatch = Symbol('Intercepted Dispatch');
 const kWebSocketOptions = Symbol('webSocketOptions');
+const kEventSourceOptions = Symbol('eventSourceOptions');
 
 let DispatcherBase$5 = class DispatcherBase extends Dispatcher$3 {
   constructor (opts) {
@@ -95520,12 +95588,19 @@ let DispatcherBase$5 = class DispatcherBase extends Dispatcher$3 {
     this[kClosed$1] = false;
     this[kOnClosed] = [];
     this[kWebSocketOptions] = opts?.webSocket ?? {};
+    this[kEventSourceOptions] = opts?.eventSource ?? {};
   }
 
   get webSocketOptions () {
     return {
       maxFragments: this[kWebSocketOptions].maxFragments ?? 131072,
       maxPayloadSize: this[kWebSocketOptions].maxPayloadSize ?? 128 * 1024 * 1024
+    }
+  }
+
+  get eventSourceOptions () {
+    return {
+      maxEventSize: this[kEventSourceOptions].maxEventSize ?? buffer.kStringMaxLength
     }
   }
 
@@ -101809,7 +101884,7 @@ class Parser {
   }
 
   onUpgrade (head) {
-    const { upgrade, client, socket, headers, statusCode } = this;
+    const { upgrade, client, socket, headers, statusCode, statusText } = this;
 
     assert$b(upgrade);
     assert$b(client[kSocket$1] === socket);
@@ -101844,9 +101919,10 @@ class Parser {
     client.emit('disconnect', client[kUrl$5], [client], new InformationalError$3('upgrade'));
 
     try {
-      request.onUpgrade(statusCode, headers, socket);
-    } catch (err) {
-      util$j.destroy(socket, err);
+      request.onUpgrade(statusCode, headers, socket, statusText);
+    } catch (error) {
+      util$j.errorRequest(client, request, error);
+      util$j.destroy(socket, error);
     }
 
     client[kResume$3]();
@@ -102103,8 +102179,6 @@ async function connectH1$1 (client, socket) {
   socket[kParser] = new Parser(client, socket, llhttpInstance);
 
   addListener(socket, 'error', function (err) {
-    assert$b(err.code !== 'ERR_TLS_CERT_ALTNAME_INVALID');
-
     const parser = this[kParser];
 
     // On Mac OS, we get an ECONNRESET even if there is a full body to be forwarded
@@ -102427,12 +102501,22 @@ function writeH1 (client, request) {
   const socket = client[kSocket$1];
   clearIdleSocketValidation(socket);
 
-  const abort = (err) => {
-    if (request.aborted || request.completed) {
+  /**
+   * @param {Error} [error]
+   */
+  const abort = (error) => {
+    if (request.aborted) {
       return
     }
 
-    util$j.errorRequest(client, request, err || new RequestAbortedError$7());
+    if (request.completed) {
+      if (request.upgrade || request.method === 'CONNECT') {
+        util$j.destroy(socket, new InformationalError$3('aborted'));
+      }
+      return
+    }
+
+    util$j.errorRequest(client, request, error || new RequestAbortedError$7());
 
     util$j.destroy(body);
     util$j.destroy(socket, new InformationalError$3('aborted'));
@@ -102881,6 +102965,7 @@ class AsyncWriter {
 var clientH1 = connectH1$1;
 
 const assert$a = require$$0$5;
+const { errorMonitor } = require$$8;
 const { pipeline: pipeline$1 } = require$$0$6;
 const util$i = util$n;
 const {
@@ -102957,6 +103042,15 @@ function parseH2Headers (headers) {
   return result
 }
 
+/**
+ * @param {import('node:http2').IncomingHttpHeaders} headers
+ * @returns {Buffer[]}
+ */
+function parseH2ResponseHeaders (headers) {
+  const { [HTTP2_HEADER_STATUS]: _statusCode, ...realHeaders } = headers;
+  return parseH2Headers(realHeaders)
+}
+
 async function connectH2$1 (client, socket) {
   client[kSocket] = socket;
 
@@ -103006,8 +103100,6 @@ async function connectH2$1 (client, socket) {
   socket[kHTTP2Session] = session;
 
   util$i.addListener(socket, 'error', function (err) {
-    assert$a(err.code !== 'ERR_TLS_CERT_ALTNAME_INVALID');
-
     this[kError$1] = err;
 
     this[kClient$2][kOnError$1](err);
@@ -103081,8 +103173,6 @@ function resumeH2 (client) {
 }
 
 function onHttp2SessionError (err) {
-  assert$a(err.code !== 'ERR_TLS_CERT_ALTNAME_INVALID');
-
   this[kSocket][kError$1] = err;
   this[kClient$2][kOnError$1](err);
 }
@@ -103177,22 +103267,32 @@ function writeH2 (client, request) {
   headers[HTTP2_HEADER_AUTHORITY] = host || `${hostname}${port ? `:${port}` : ''}`;
   headers[HTTP2_HEADER_METHOD] = method;
 
-  const abort = (err) => {
-    if (request.aborted || request.completed) {
+  /**
+   * @param {Error} [error]
+   */
+  const abort = (error) => {
+    if (request.aborted) {
       return
     }
 
-    err = err || new RequestAbortedError$6();
+    if (request.completed) {
+      if (method === 'CONNECT' && stream != null) {
+        util$i.destroy(stream, error || new RequestAbortedError$6());
+      }
+      return
+    }
 
-    util$i.errorRequest(client, request, err);
+    error = error || new RequestAbortedError$6();
+
+    util$i.errorRequest(client, request, error);
 
     if (stream != null) {
-      util$i.destroy(stream, err);
+      util$i.destroy(stream, error);
     }
 
     // We do not destroy the socket as we can continue using the session
     // the stream get's destroyed and the session remains to create new streams
-    util$i.destroy(body, err);
+    util$i.destroy(body, error);
     client[kQueue$2][client[kRunningIdx$1]++] = null;
     client[kResume$2]();
   };
@@ -103211,25 +103311,57 @@ function writeH2 (client, request) {
 
   if (method === 'CONNECT') {
     session.ref();
-    // We are already connected, streams are pending, first request
-    // will create a new stream. We trigger a request to create the stream and wait until
-    // `ready` event is triggered
     // We disabled endStream to allow the user to write to the stream
     stream = session.request(headers, { endStream: false, signal });
+    let upgradeResponseFinished = false;
 
-    if (stream.id && !stream.pending) {
-      request.onUpgrade(null, null, stream);
-      ++session[kOpenStreams];
-      client[kQueue$2][client[kRunningIdx$1]++] = null;
-    } else {
-      stream.once('ready', () => {
+    /**
+     * @param {import('node:http2').IncomingHttpHeaders} headers
+     */
+    const onResponse = (headers) => {
+      upgradeResponseFinished = true;
+      stream.off(errorMonitor, onUpgradeError);
+      request.onUpgradeResponse(Number(headers[HTTP2_HEADER_STATUS]), headers, parseH2ResponseHeaders);
+    };
+
+    /**
+     * @param {Error} error
+     */
+    const onUpgradeError = (error) => {
+      upgradeResponseFinished = true;
+      stream.off('response', onResponse);
+      request.onUpgradeError(error);
+    };
+
+    const onReady = () => {
+      try {
         request.onUpgrade(null, null, stream);
-        ++session[kOpenStreams];
-        client[kQueue$2][client[kRunningIdx$1]++] = null;
-      });
-    }
+      } catch (error) {
+        stream.off('response', onResponse);
+        abort(error);
+        return
+      }
+
+      if (request.aborted) {
+        return
+      }
+
+      stream.off('error', abort);
+      stream.once(errorMonitor, onUpgradeError);
+      client[kQueue$2][client[kRunningIdx$1]++] = null;
+    };
+
+    stream.once('response', onResponse);
+    stream.once('error', abort);
+    ++session[kOpenStreams];
+    onReady();
 
     stream.once('close', () => {
+      if (!upgradeResponseFinished && request.completed) {
+        stream.off('response', onResponse);
+        stream.off(errorMonitor, onUpgradeError);
+        request.onUpgradeError(new InformationalError$2(`HTTP/2: "stream error" received - code ${stream.rstCode}`));
+      }
       session[kOpenStreams] -= 1;
       if (session[kOpenStreams] === 0) session.unref();
     });
@@ -103961,9 +104093,10 @@ let Client$5 = class Client extends DispatcherBase$4 {
     // h2
     maxConcurrentStreams,
     allowH2,
-    webSocket
+    webSocket,
+    eventSource
   } = {}) {
-    super({ webSocket });
+    super({ webSocket, eventSource });
 
     if (keepAlive !== undefined) {
       throw new InvalidArgumentError$i('unsupported keepAlive, use pipelining=0 instead')
@@ -105155,7 +105288,7 @@ function defaultFactory$1 (origin, opts) {
 }
 
 let Agent$5 = class Agent extends DispatcherBase$2 {
-  constructor ({ factory = defaultFactory$1, maxRedirections = 0, connect, ...options } = {}) {
+  constructor ({ factory = defaultFactory$1, maxRedirections = 0, connect, tls, ...options } = {}) {
     if (typeof factory !== 'function') {
       throw new InvalidArgumentError$f('factory must be a function.')
     }
@@ -105174,11 +105307,15 @@ let Agent$5 = class Agent extends DispatcherBase$2 {
       connect = { ...connect };
     }
 
+    if (tls && typeof tls !== 'function') {
+      tls = { ...tls };
+    }
+
     this[kInterceptors$1] = options.interceptors?.Agent && Array.isArray(options.interceptors.Agent)
       ? options.interceptors.Agent
       : [createRedirectInterceptor$1({ maxRedirections })];
 
-    this[kOptions$1] = { ...util$e.deepClone(options), connect };
+    this[kOptions$1] = { ...util$e.deepClone(options), connect, tls };
     this[kOptions$1].interceptors = options.interceptors
       ? { ...options.interceptors }
       : undefined;
@@ -105898,7 +106035,10 @@ let RetryHandler$3 = class RetryHandler {
     this.retryCount += 1;
 
     if (statusCode >= 300) {
-      if (this.retryOpts.statusCodes.includes(statusCode) === false) {
+      // Only expose a response if no earlier attempt has reached the caller.
+      // Otherwise abort this attempt so the error settles the existing body
+      // instead of replacing it with a new response.
+      if (!this.headersSent && this.retryOpts.statusCodes.includes(statusCode) === false) {
         this.headersSent = true;
         this.checkpointResponseEnd(headers, resume);
         return this.handler.onHeaders(
@@ -113477,8 +113617,10 @@ function requireFetch () {
 	  // 19. Run these steps in parallel:
 
 	  //    1. Run these steps, but abort when fetchParams is canceled:
-	  fetchParams.controller.onAborted = onAborted;
-	  fetchParams.controller.on('terminated', onAborted);
+	  if (!fetchParams.controller.resume) {
+	    fetchParams.controller.on('terminated', onAborted);
+	  }
+
 	  fetchParams.controller.resume = async () => {
 	    // 1. While true
 	    while (true) {
@@ -113647,8 +113789,6 @@ function requireFetch () {
 	          }
 	          location = headersList.get('location', true);
 
-	          this.body = new Readable({ read: resume });
-
 	          const decoders = [];
 
 	          const willFollow = location && request.redirect === 'follow' &&
@@ -113666,7 +113806,7 @@ function requireFetch () {
 	            // CVE fix similar to urllib3 (GHSA-gm62-xv2j-4w53) and curl (CVE-2022-32206).
 	            const maxContentEncodings = 5;
 	            if (codings.length > maxContentEncodings) {
-	              reject(new Error(`too many content-encodings in response: ${codings.length}, maximum allowed is ${maxContentEncodings}`));
+	              this.abort(new Error(`too many content-encodings in response: ${codings.length}, maximum allowed is ${maxContentEncodings}`));
 	              return true
 	            }
 
@@ -113698,6 +113838,8 @@ function requireFetch () {
 	              }
 	            }
 	          }
+
+	          this.body = new Readable({ read: resume });
 
 	          const onError = this.onError.bind(this);
 
@@ -113743,10 +113885,6 @@ function requireFetch () {
 	        onComplete () {
 	          if (this.abort) {
 	            fetchParams.controller.off('terminated', this.abort);
-	          }
-
-	          if (fetchParams.controller.onAborted) {
-	            fetchParams.controller.off('terminated', fetchParams.controller.onAborted);
 	          }
 
 	          fetchParams.controller.ended = true;
@@ -118546,6 +118684,20 @@ function requireReceiver () {
 	        if (isControlFrame(this.#info.opcode)) {
 	          this.#loop = this.parseControlFrame(body);
 	          this.#state = parserStates.INFO;
+
+	          // If the automatic PONG/CLOSE reply filled the socket's write buffer,
+	          // stop parsing and resume on drain so a PING flood cannot grow the
+	          // outbound queue without bound.
+	          const socket = this.ws[kResponse].socket;
+	          if (this.#loop && socket.writableNeedDrain) {
+	            this.#loop = false;
+	            socket.once('drain', () => {
+	              if (this.destroyed) return
+	              this.#loop = true;
+	              this.run(callback);
+	            });
+	            return
+	          }
 	        } else {
 	          if (!this.#info.compressed) {
 	            if (!this.writeFragments(body)) {
@@ -119577,6 +119729,7 @@ var hasRequiredEventsourceStream;
 function requireEventsourceStream () {
 	if (hasRequiredEventsourceStream) return eventsourceStream;
 	hasRequiredEventsourceStream = 1;
+	const buffer = require$$0$8;
 	const { Transform } = require$$0$6;
 	const { isASCIINumber, isValidLastEventId } = requireUtil();
 
@@ -119601,10 +119754,18 @@ function requireEventsourceStream () {
 	 */
 	const SPACE = 0x20;
 
+	const defaultMaxEventSize = buffer.kStringMaxLength;
+
 	const DATA = Buffer.from('data');
 	const EVENT = Buffer.from('event');
 	const ID = Buffer.from('id');
 	const RETRY = Buffer.from('retry');
+
+	// Each data field creates a string node, and each unconsumed input chunk keeps
+	// a Buffer wrapper. The absolute ceiling protects the large default byte limit.
+	const minParserItems = 1024;
+	const maxParserItems = 131072;
+	const bytesPerParserItem = 128;
 
 	function isASCIINumberBytes (buffer, start) {
 	  if (start >= buffer.length) {
@@ -119642,6 +119803,12 @@ function requireEventsourceStream () {
 	  }
 
 	  return true
+	}
+
+	function createMaxEventSizeExceededError () {
+	  const error = new Error('EventSource message size exceeded');
+	  error.aborted = false;
+	  return error
 	}
 
 	/**
@@ -119692,6 +119859,13 @@ function requireEventsourceStream () {
 	  pos = 0
 	  lineChunkIndex = 0
 	  linePos = 0
+	  lineLength = 0
+	  eventSize = 0
+	  eventFieldSizes = { data: 0, event: 0, id: 0, retry: 0 }
+	  dataLineCount = 0
+	  maxEventSize
+	  maxDataLines
+	  maxBufferedChunks
 
 	  event = {
 	    data: undefined,
@@ -119702,6 +119876,7 @@ function requireEventsourceStream () {
 
 	  /**
 	   * @param {object} options
+	   * @param {number} [options.maxEventSize]
 	   * @param {eventSourceSettings} options.eventSourceSettings
 	   * @param {Function} [options.push]
 	   */
@@ -119713,6 +119888,12 @@ function requireEventsourceStream () {
 	    super(options);
 
 	    this.state = options.eventSourceSettings || {};
+	    this.maxEventSize = options.maxEventSize ?? defaultMaxEventSize;
+	    const parserItemLimit = this.maxEventSize > 0
+	      ? Math.min(maxParserItems, Math.max(minParserItems, Math.floor(this.maxEventSize / bytesPerParserItem)))
+	      : 0;
+	    this.maxDataLines = parserItemLimit;
+	    this.maxBufferedChunks = parserItemLimit;
 	    if (options.push) {
 	      this.push = options.push;
 	    }
@@ -119730,6 +119911,14 @@ function requireEventsourceStream () {
 	      return
 	    }
 
+	    // A leading line ending can immediately release the currently buffered
+	    // line, even when it uses the final allowed chunk slot.
+	    if (this.maxEventSize > 0 &&
+	        this.chunks.length >= this.maxBufferedChunks &&
+	        chunk[0] !== LF && chunk[0] !== CR) {
+	      callback(createMaxEventSizeExceededError());
+	      return
+	    }
 	    this.chunks.push(chunk);
 
 	    // Strip leading byte-order-mark if we opened the stream and started
@@ -119808,7 +119997,12 @@ function requireEventsourceStream () {
 
 	        // In any case, we can process the line as we reached an
 	        // end-of-line character
-	        this.parseLine(this.readLine(), this.event);
+	        try {
+	          this.parseLine(this.readLine(), this.event);
+	        } catch (error) {
+	          callback(error);
+	          return
+	        }
 	        this.consumeCurrentByte();
 	        // A line was processed and this could be the end of the event. We need
 	        // to check if the next line is empty to determine if the event is
@@ -119817,15 +120011,28 @@ function requireEventsourceStream () {
 	        continue
 	      }
 
+	      // readLine() is only called after CR or LF. Reject an unfinished line
+	      // before it can retain an unbounded number of decoded chunks. The seven
+	      // extra bytes allow the longest field prefix ("event: " or "retry: ").
+	      if (this.maxEventSize > 0 && ++this.lineLength > this.maxEventSize + 7) {
+	        callback(createMaxEventSizeExceededError());
+	        return
+	      }
 	      this.advanceCursor();
 	    }
 
 	    callback();
 	  }
 
+	  _destroy (error, callback) {
+	    this.chunks.length = 0;
+	    this.clearEvent();
+	    super._destroy(error, callback);
+	  }
+
 	  /**
 	   * @param {Buffer} line
-	   * @param {EventStreamEvent} event
+	   * @param {EventSourceStreamEvent} event
 	   */
 	  parseLine (line, event) {
 	    // If the line is empty (a blank line)
@@ -119859,6 +120066,13 @@ function requireEventsourceStream () {
 	    }
 
 	    if (isFieldName(line, fieldLength, DATA)) {
+	      if (this.maxEventSize > 0 && this.dataLineCount >= this.maxDataLines) {
+	        throw createMaxEventSizeExceededError()
+	      }
+	      const valueBytes = line.length - valueStart;
+	      const dataSize = this.eventFieldSizes.data + (event.data === undefined ? 0 : 1) + valueBytes;
+	      this.setEventFieldSize('data', dataSize);
+
 	      const value = line.toString('utf8', valueStart);
 
 	      if (event.data === undefined) {
@@ -119866,11 +120080,13 @@ function requireEventsourceStream () {
 	      } else {
 	        event.data += `\n${value}`;
 	      }
+	      this.dataLineCount++;
 	      return
 	    }
 
 	    if (isFieldName(line, fieldLength, RETRY)) {
 	      if (isASCIINumberBytes(line, valueStart)) {
+	        this.setEventFieldSize('retry', line.length - valueStart);
 	        event.retry = line.toString('utf8', valueStart);
 	      }
 	      return
@@ -119878,18 +120094,27 @@ function requireEventsourceStream () {
 
 	    if (isFieldName(line, fieldLength, ID)) {
 	      if (isValidLastEventIdBytes(line, valueStart)) {
+	        this.setEventFieldSize('id', line.length - valueStart);
 	        event.id = line.toString('utf8', valueStart);
 	      }
 	      return
 	    }
 
 	    if (isFieldName(line, fieldLength, EVENT)) {
-	      const value = line.toString('utf8', valueStart);
-
-	      if (value.length > 0) {
-	        event.event = value;
+	      if (valueStart < line.length) {
+	        this.setEventFieldSize('event', line.length - valueStart);
+	        event.event = line.toString('utf8', valueStart);
 	      }
 	    }
+	  }
+
+	  setEventFieldSize (field, size) {
+	    const eventSize = this.eventSize - this.eventFieldSizes[field] + size;
+	    if (this.maxEventSize > 0 && eventSize > this.maxEventSize) {
+	      throw createMaxEventSizeExceededError()
+	    }
+	    this.eventSize = eventSize;
+	    this.eventFieldSizes[field] = size;
 	  }
 
 	  /**
@@ -119922,6 +120147,12 @@ function requireEventsourceStream () {
 	    this.event.event = undefined;
 	    this.event.id = undefined;
 	    this.event.retry = undefined;
+	    this.eventSize = 0;
+	    this.dataLineCount = 0;
+	    this.eventFieldSizes.data = 0;
+	    this.eventFieldSizes.event = 0;
+	    this.eventFieldSizes.id = 0;
+	    this.eventFieldSizes.retry = 0;
 	  }
 
 	  hasPendingEvent () {
@@ -119957,14 +120188,16 @@ function requireEventsourceStream () {
 	  syncLineStartToCursor () {
 	    this.lineChunkIndex = this.chunkIndex;
 	    this.linePos = this.pos;
+	    this.lineLength = 0;
 	    this.dropConsumedChunks();
 	  }
 
 	  dropConsumedChunks () {
-	    while (this.lineChunkIndex > 0) {
-	      this.chunks.shift();
-	      this.lineChunkIndex--;
-	      this.chunkIndex--;
+	    if (this.lineChunkIndex > 0) {
+	      const consumed = this.lineChunkIndex;
+	      this.chunks.splice(0, consumed);
+	      this.lineChunkIndex = 0;
+	      this.chunkIndex -= consumed;
 	    }
 
 	    if (this.chunkIndex === this.chunks.length) {
@@ -120090,6 +120323,7 @@ function requireEventsource () {
 	const { delay } = requireUtil();
 	const { kEnumerableProperty } = util$n;
 	const { environmentSettingsObject } = requireUtil$5();
+	const { getGlobalDispatcher } = global$1;
 
 	let experimentalWarned = false;
 
@@ -120371,6 +120605,7 @@ function requireEventsource () {
 
 	      const eventSourceStream = new EventSourceStream({
 	        eventSourceSettings: this.#state,
+	        maxEventSize: this.#dispatcher.eventSourceOptions?.maxEventSize,
 	        push: (event) => {
 	          this.dispatchEvent(createFastMessageEvent(
 	            event.type,
@@ -120549,7 +120784,8 @@ function requireEventsource () {
 	  },
 	  {
 	    key: 'dispatcher', // undici only
-	    converter: webidl.converters.any
+	    converter: webidl.converters.any,
+	    defaultValue: () => getGlobalDispatcher()
 	  }
 	]);
 
