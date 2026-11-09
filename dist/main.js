@@ -131506,7 +131506,7 @@ const typeOfTest = (type) => (thing) => typeof thing === type;
  *
  * @returns {boolean} True if value is an Array, otherwise false
  */
-const { isArray: isArray$1 } = Array;
+const { isArray } = Array;
 
 /**
  * Determine if a value is undefined
@@ -131809,7 +131809,7 @@ function forEach(obj, fn, { allOwnKeys = false } = {}) {
     obj = [obj];
   }
 
-  if (isArray$1(obj)) {
+  if (isArray(obj)) {
     // Iterate over array values
     for (i = 0, l = obj.length; i < l; i++) {
       fn.call(null, obj[i], i, obj);
@@ -131904,7 +131904,7 @@ function merge(...objs) {
       result[targetKey] = merge(existing, val);
     } else if (isPlainObject(val)) {
       result[targetKey] = merge({}, val);
-    } else if (isArray$1(val)) {
+    } else if (isArray(val)) {
       result[targetKey] = val.slice();
     } else if (!skipUndefined || !isUndefined(val)) {
       result[targetKey] = val;
@@ -131919,7 +131919,7 @@ function merge(...objs) {
 
     forEach(source, assignValue);
 
-    if (typeof source !== 'object' || isArray$1(source)) {
+    if (typeof source !== 'object' || isArray(source)) {
       continue;
     }
 
@@ -132076,7 +132076,7 @@ const endsWith = (str, searchString, position) => {
  */
 const toArray = (thing) => {
   if (!thing) return null;
-  if (isArray$1(thing)) return thing;
+  if (isArray(thing)) return thing;
   let i = thing.length;
   if (!isNumber(i)) return null;
   const arr = new Array(i);
@@ -132224,7 +132224,7 @@ const toObjectSet = (arrayOrString, delimiter) => {
     });
   };
 
-  isArray$1(arrayOrString) ? define(arrayOrString) : define(String(arrayOrString).split(delimiter));
+  isArray(arrayOrString) ? define(arrayOrString) : define(String(arrayOrString).split(delimiter));
 
   return obj;
 };
@@ -132284,7 +132284,7 @@ const toJSONObject = (obj) => {
             !isUndefined(reducedValue) && target.push(reducedValue);
           }
         } else {
-          target = isArray$1(source) ? [] : {};
+          target = isArray(source) ? [] : {};
 
           forEach(source, (value, key) => {
             const reducedValue = visit(value);
@@ -132390,7 +132390,7 @@ const isSafeIterable = (thing) =>
   thing != null && hasOwnInPrototypeChain(thing, iterator) && isIterable(thing);
 
 var utils$1 = {
-  isArray: isArray$1,
+  isArray,
   isArrayBuffer,
   isBuffer: isBuffer$1,
   isFormData,
@@ -151935,7 +151935,7 @@ RedirectableRequest.prototype._sanitizeOptions = function (options) {
     }
   }
   // Ensure sensitive headers are always present
-  if (!isArray(options.sensitiveHeaders)) {
+  if (!Array.isArray(options.sensitiveHeaders)) {
     options.sensitiveHeaders = [];
   }
 
@@ -152311,10 +152311,6 @@ function isSubdomain(subdomain, domain) {
   assert(isString(subdomain) && isString(domain));
   var dot = subdomain.length - domain.length - 1;
   return dot > 0 && subdomain[dot] === "." && subdomain.endsWith(domain);
-}
-
-function isArray(value) {
-  return value instanceof Array;
 }
 
 function isString(value) {
